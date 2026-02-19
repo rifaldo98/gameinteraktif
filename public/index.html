@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikTok Live Battle Arena</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.js"></script>
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --panel: #ffffff;
+            --panel-border: #cbd5e1;
+            --text: #0f172a;
+            --muted: #475569;
+            --accent: #0ea5e9;
+            --accent-hover: #0284c7;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        #app {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: row;
+            gap: 12px;
+            padding: 12px;
+        }
+
+        #gameRoot {
+            flex: 1;
+            min-width: 0;
+            border: 2px solid var(--panel-border);
+            background: #e2e8f0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        #hud {
+            width: 340px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            padding: 10px;
+        }
+
+        .panel h3 {
+            margin: 0 0 8px 0;
+            font-size: 15px;
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .row {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .row > * {
+            flex: 1;
+        }
+
+        input,
+        select,
+        button {
+            width: 100%;
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid var(--panel-border);
+            font-size: 14px;
+        }
+
+        button {
+            background: var(--accent);
+            color: #ffffff;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: var(--accent-hover);
+        }
+
+        #queueList {
+            margin: 8px 0 0 18px;
+            padding: 0;
+            max-height: 180px;
+            overflow-y: auto;
+            font-size: 14px;
+        }
+
+        #battleStatus {
+            font-size: 14px;
+            line-height: 1.45;
+            white-space: pre-line;
+        }
+
+        @media (max-width: 980px) {
+            #app {
+                flex-direction: column;
+            }
+
+            #hud {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div id="gameRoot"></div>
+
+        <aside id="hud">
+            <section class="panel">
+                <h3>Viewer Control</h3>
+                <div class="muted">Tambah/keluarkan viewer untuk simulasi live.</div>
+                <div class="row">
+                    <input id="viewerName" type="text" placeholder="username viewer">
+                </div>
+                <div class="row">
+                    <button id="joinBtn">Join</button>
+                    <button id="leaveBtn">Leave</button>
+                </div>
+            </section>
+
+            <section class="panel">
+                <h3>Gift Control</h3>
+                <div class="muted">Gift aktif hanya untuk player di arena atau queue.</div>
+                <div class="row">
+                    <input id="giftUser" type="text" placeholder="target username">
+                </div>
+                <div class="row">
+                    <select id="giftType">
+                        <option value="mawar">Mawar (+1 HP)</option>
+                        <option value="donut">Donut (+30 HP)</option>
+                        <option value="love">Love (+100 HP)</option>
+                        <option value="corgi">Corgi (+300 HP)</option>
+                        <option value="rosa">Rosa (Spawn Sword)</option>
+                    </select>
+                    <button id="giftBtn">Send Gift</button>
+                </div>
+            </section>
+
+            <section class="panel">
+                <h3>Status Arena</h3>
+                <div id="battleStatus">Menunggu data...</div>
+                <div class="muted" id="queueMeta"></div>
+                <ol id="queueList"></ol>
+            </section>
+        </aside>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+
+        const ui = {
+            viewerName: document.getElementById("viewerName"),
+            joinBtn: document.getElementById("joinBtn"),
+            leaveBtn: document.getElementById("leaveBtn"),
+            giftUser: document.getElementById("giftUser"),
+            giftType: document.getElementById("giftType"),
+            giftBtn: document.getElementById("giftBtn"),
+            battleStatus: document.getElementById("battleStatus"),
+            queueMeta: document.getElementById("queueMeta"),
+            queueList: document.getElementById("queueList")
+        };
+
+        let sceneRef = null;
+        let championView = null;
+        let challengerView = null;
+        let lastAttackId = 0;
+        const SPRITE_NATIVE_FACING_RIGHT = true;
+        const SPRITE_FRAME_WIDTH = 112;
+        const SPRITE_FRAME_HEIGHT = 256;
+        const SPRITE_COLUMNS = 12;
+        const SPRITE_ACTIVE_FRAMES_PER_ROW = 12;
+        const SPRITE_CROP_LEFT = 0;
+        const SPRITE_CROP_RIGHT = 0;
+        const SPRITE_CROP_TOP = 0;
+        const SPRITE_CROP_BOTTOM = 0;
+        const ROW_PUNCH_ATTACK = 0;
+        const ROW_PUNCH_DEFEND = 1;
+        const ROW_SWORD_ATTACK = 2;
+        const ROW_SWORD_DEFEND = 3;
+        const CHAMPION_TEXTURE_PATH = "fighter1_clean1.png";
+        const CHALLENGER_TEXTURE_PATH = "figther2_clean.png";
+        const CHAMPION_TEXTURE_KEY = "championFighter";
+        const CHALLENGER_TEXTURE_KEY = "challengerFighter";
+
+        const config = {
+            type: Phaser.AUTO,
+            parent: "gameRoot",
+            width: 1280,
+            height: 720,
+            backgroundColor: "#f8fafc",
+            pixelArt: true,
+            antialias: false,
+            scene: { preload, create }
+        };
+
+        new Phaser.Game(config);
+
+        function preload() {
+            this.load.spritesheet(CHAMPION_TEXTURE_KEY, CHAMPION_TEXTURE_PATH, {
+                frameWidth: SPRITE_FRAME_WIDTH,
+                frameHeight: SPRITE_FRAME_HEIGHT
+            });
+
+            this.load.spritesheet(CHALLENGER_TEXTURE_KEY, CHALLENGER_TEXTURE_PATH, {
+                frameWidth: SPRITE_FRAME_WIDTH,
+                frameHeight: SPRITE_FRAME_HEIGHT
+            });
+        }
+
+        function create() {
+            sceneRef = this;
+            createAnimations(this);
+            this.cameras.main.roundPixels = true;
+
+            this.add.rectangle(640, 360, 1280, 720, 0xf8fafc).setDepth(-10);
+            this.add.rectangle(640, 670, 1280, 100, 0xe2e8f0).setDepth(-9);
+
+            championView = createFighterView(this, {
+                x: 525,
+                y: 620,
+                faceRight: true,
+                dashDirection: 1,
+                textureKey: CHAMPION_TEXTURE_KEY,
+                animPrefix: "champion",
+                baseDepth: 10,
+                scale: 1.2,
+                spriteOffsetY: 0
+            });
+
+            challengerView = createFighterView(this, {
+                x: 755,
+                y: 620,
+                faceRight: false,
+                dashDirection: -1,
+                textureKey: CHALLENGER_TEXTURE_KEY,
+                animPrefix: "challenger",
+                baseDepth: 10,
+                scale: 1.2,
+                spriteOffsetY: 0
+            });
+
+            bindControls();
+
+            socket.on("update", (arena) => {
+                renderArena(arena);
+            });
+        }
+
+        function createAnimations(scene) {
+            createAnimationSet(scene, CHAMPION_TEXTURE_KEY, "champion");
+            createAnimationSet(scene, CHALLENGER_TEXTURE_KEY, "challenger");
+        }
+
+        function createAnimationSet(scene, textureKey, prefix) {
+            createAnimation(scene, {
+                key: prefix + "-punch-attack",
+                textureKey,
+                row: ROW_PUNCH_ATTACK,
+                frameRate: 14,
+                repeat: 0
+            });
+
+            createAnimation(scene, {
+                key: prefix + "-punch-defend",
+                textureKey,
+                row: ROW_PUNCH_DEFEND,
+                frameRate: 9,
+                repeat: -1
+            });
+
+            createAnimation(scene, {
+                key: prefix + "-sword-attack",
+                textureKey,
+                row: ROW_SWORD_ATTACK,
+                frameRate: 14,
+                repeat: 0
+            });
+
+            createAnimation(scene, {
+                key: prefix + "-sword-defend",
+                textureKey,
+                row: ROW_SWORD_DEFEND,
+                frameRate: 9,
+                repeat: -1
+            });
+        }
+
+        function createAnimation(scene, options) {
+            if (scene.anims.exists(options.key)) {
+                return;
+            }
+
+            const rowStart = options.row * SPRITE_COLUMNS;
+            scene.anims.create({
+                key: options.key,
+                frames: scene.anims.generateFrameNumbers(options.textureKey, {
+                    start: rowStart,
+                    end: rowStart + (SPRITE_ACTIVE_FRAMES_PER_ROW - 1)
+                }),
+                frameRate: options.frameRate,
+                repeat: options.repeat
+            });
+        }
+
+        function createFighterView(scene, options) {
+            const container = scene.add.container(options.x, options.y);
+
+            const sprite = scene.add.sprite(0, 0, options.textureKey).play(options.animPrefix + "-punch-defend");
+            sprite.setOrigin(0.5, 1);
+            sprite.setScale(options.scale || 1);
+            sprite.setPosition(0, options.spriteOffsetY || 0);
+            if (SPRITE_CROP_LEFT > 0 || SPRITE_CROP_RIGHT > 0 || SPRITE_CROP_TOP > 0 || SPRITE_CROP_BOTTOM > 0) {
+                sprite.setCrop(
+                    SPRITE_CROP_LEFT,
+                    SPRITE_CROP_TOP,
+                    SPRITE_FRAME_WIDTH - SPRITE_CROP_LEFT - SPRITE_CROP_RIGHT,
+                    SPRITE_FRAME_HEIGHT - SPRITE_CROP_TOP - SPRITE_CROP_BOTTOM
+                );
+            }
+            setSpriteFacing(sprite, options.faceRight);
+
+            const hpY = -Math.round(sprite.displayHeight) - 46;
+            const nameY = hpY - 34;
+
+            const nameText = scene.add.text(0, nameY, "-", {
+                fontFamily: "Segoe UI",
+                fontSize: "23px",
+                color: "#0f172a",
+                fontStyle: "bold"
+            }).setOrigin(0.5);
+
+            const hpBg = scene.add.rectangle(0, hpY, 220, 18, 0x1f2937, 0.9)
+                .setStrokeStyle(2, 0xffffff, 0.35);
+
+            const hpFill = scene.add.rectangle(-109, hpY, 216, 12, 0x22c55e, 1)
+                .setOrigin(0, 0.5);
+
+            const hpText = scene.add.text(0, hpY, "HP 30/30", {
+                fontFamily: "Segoe UI",
+                fontSize: "12px",
+                color: "#ffffff",
+                fontStyle: "bold"
+            }).setOrigin(0.5);
+
+            container.add([sprite, nameText, hpBg, hpFill, hpText]);
+            container.setVisible(false);
+            container.setDepth(options.baseDepth || 10);
+
+            return {
+                container,
+                sprite,
+                nameText,
+                hpFill,
+                hpText,
+                dashDirection: options.dashDirection,
+                animPrefix: options.animPrefix,
+                baseDepth: options.baseDepth || 10,
+                homeX: options.x,
+                homeY: options.y,
+                playerUsername: "",
+                isAttacking: false,
+                hasSword: false
+            };
+        }
+
+        function resetViewTransform(view) {
+            if (!view) {
+                return;
+            }
+
+            if (sceneRef) {
+                sceneRef.tweens.killTweensOf(view.container);
+            }
+
+            view.container.x = view.homeX;
+            view.container.y = view.homeY;
+            view.container.setDepth(view.baseDepth || 10);
+            view.sprite.clearTint();
+        }
+
+        function setSpriteFacing(sprite, faceRight) {
+            const flipX = SPRITE_NATIVE_FACING_RIGHT ? !faceRight : faceRight;
+            sprite.setFlipX(flipX);
+        }
+
+        function bindControls() {
+            ui.joinBtn.addEventListener("click", () => {
+                const username = ui.viewerName.value.trim();
+                if (!username) {
+                    return;
+                }
+
+                socket.emit("join", username);
+                if (!ui.giftUser.value.trim()) {
+                    ui.giftUser.value = username;
+                }
+            });
+
+            ui.leaveBtn.addEventListener("click", () => {
+                const username = ui.viewerName.value.trim();
+                if (!username) {
+                    return;
+                }
+
+                socket.emit("leave", username);
+            });
+
+            ui.giftBtn.addEventListener("click", () => {
+                const username = ui.giftUser.value.trim();
+                const gift = ui.giftType.value;
+                if (!username || !gift) {
+                    return;
+                }
+
+                socket.emit("gift", { username, gift });
+            });
+
+            ui.viewerName.addEventListener("keydown", (event) => {
+                if (event.key === "Enter") {
+                    ui.joinBtn.click();
+                }
+            });
+
+            ui.giftUser.addEventListener("keydown", (event) => {
+                if (event.key === "Enter") {
+                    ui.giftBtn.click();
+                }
+            });
+        }
+
+        function renderArena(arena) {
+            if (!sceneRef || !arena) {
+                return;
+            }
+
+            applyPlayerToView(championView, arena.champion);
+            applyPlayerToView(challengerView, arena.challenger);
+
+            maybeAnimateLastAttack(sceneRef, arena.lastAttack);
+            updateHud(arena);
+        }
+
+        function applyPlayerToView(view, player) {
+            if (!view) {
+                return;
+            }
+
+            if (!player) {
+                resetViewTransform(view);
+                view.playerUsername = "";
+                view.container.setVisible(false);
+                view.isAttacking = false;
+                view.hasSword = false;
+                return;
+            }
+
+            const previousUsername = view.playerUsername;
+            if (previousUsername && previousUsername !== player.username) {
+                resetViewTransform(view);
+                view.isAttacking = false;
+            }
+
+            view.container.setVisible(true);
+            view.playerUsername = player.username;
+            view.hasSword = Boolean(player.hasSword);
+
+            const hpRatio = clamp(player.maxHp > 0 ? player.hp / player.maxHp : 0, 0, 1);
+            const hpBarColor = hpRatio > 0.6 ? 0x22c55e : hpRatio > 0.3 ? 0xf59e0b : 0xef4444;
+            const hpBarWidth = Math.max(2, 216 * hpRatio);
+
+            view.nameText.setText(player.hasSword ? player.username + " [SWORD]" : player.username);
+            view.hpFill.displayWidth = hpBarWidth;
+            view.hpFill.setFillStyle(hpBarColor, 1);
+            view.hpText.setText("HP " + player.hp + "/" + player.maxHp);
+
+            const defendAnim = getDefendAnimKey(view, view.hasSword);
+            if (!view.isAttacking && view.sprite.anims.currentAnim?.key !== defendAnim) {
+                view.sprite.play(defendAnim, true);
+            }
+        }
+
+        function maybeAnimateLastAttack(scene, lastAttack) {
+            if (!lastAttack || !lastAttack.id || lastAttack.id === lastAttackId) {
+                return;
+            }
+
+            lastAttackId = lastAttack.id;
+
+            let attackerView = null;
+            let targetView = null;
+
+            if (championView.playerUsername === lastAttack.attacker) {
+                attackerView = championView;
+                targetView = challengerView;
+            } else if (challengerView.playerUsername === lastAttack.attacker) {
+                attackerView = challengerView;
+                targetView = championView;
+            }
+
+            if (!attackerView || !targetView) {
+                return;
+            }
+
+            playAttackAnimation(scene, attackerView, targetView, {
+                useSword: Boolean(lastAttack.sword),
+                damage: Number(lastAttack.totalDamage) || 0
+            });
+        }
+
+        function playAttackAnimation(scene, attackerView, targetView, attackInfo) {
+            if (!attackerView.playerUsername || !targetView.playerUsername) {
+                return;
+            }
+
+            scene.tweens.killTweensOf(attackerView.container);
+            scene.tweens.killTweensOf(targetView.container);
+
+            attackerView.isAttacking = true;
+
+            const attackAnim = getAttackAnimKey(attackerView, attackInfo.useSword);
+            const attackerDefendAnim = getDefendAnimKey(attackerView, attackerView.hasSword);
+            const targetDefendAnim = getDefendAnimKey(targetView, targetView.hasSword);
+            const totalDamage = Math.max(0, attackInfo.damage || 0);
+            const attackerStartX = attackerView.container.x;
+            const targetStartX = targetView.container.x;
+            const distance = Math.abs(targetStartX - attackerStartX);
+            const minGap = Math.max(
+                190,
+                ((attackerView.sprite.displayWidth + targetView.sprite.displayWidth) * 0.5) + 44
+            );
+            const maxDashAllowed = Math.max(0, distance - minGap);
+            const baseDash = attackInfo.useSword ? 48 : 40;
+            const dashDistance = Math.min(baseDash, maxDashAllowed);
+            const knockbackDistance = Math.min(14, Math.max(4, (distance - minGap) * 0.16));
+
+            scene.tweens.add({
+                targets: attackerView.container,
+                x: attackerStartX + dashDistance * attackerView.dashDirection,
+                duration: 140,
+                ease: "Cubic.easeOut",
+                onStart: () => {
+                    attackerView.container.setDepth((targetView.baseDepth || 10) + 1);
+                    attackerView.sprite.play(attackAnim, true);
+                },
+                onComplete: () => {
+                    scene.tweens.add({
+                        targets: targetView.container,
+                        x: targetStartX + knockbackDistance * attackerView.dashDirection,
+                        duration: 105,
+                        yoyo: true,
+                        ease: "Quad.easeOut"
+                    });
+
+                    targetView.sprite.setTintFill(0xfca5a5);
+                    scene.time.delayedCall(110, () => {
+                        targetView.sprite.clearTint();
+                    });
+                    targetView.sprite.play(targetDefendAnim, true);
+
+                    spawnDamageText(scene, targetView, totalDamage);
+                    scene.cameras.main.shake(105, 0.008);
+
+                    scene.tweens.add({
+                        targets: attackerView.container,
+                        x: attackerStartX,
+                        duration: 135,
+                        ease: "Cubic.easeIn",
+                        onComplete: () => {
+                            attackerView.container.setDepth(attackerView.baseDepth || 10);
+                        }
+                    });
+                }
+            });
+
+            attackerView.sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+                attackerView.isAttacking = false;
+                if (attackerView.playerUsername) {
+                    attackerView.sprite.play(attackerDefendAnim, true);
+                }
+            });
+        }
+
+        function getAttackAnimKey(view, useSword) {
+            return view.animPrefix + "-" + (useSword ? "sword-attack" : "punch-attack");
+        }
+
+        function getDefendAnimKey(view, useSword) {
+            return view.animPrefix + "-" + (useSword ? "sword-defend" : "punch-defend");
+        }
+
+        function spawnDamageText(scene, targetView, damage) {
+            if (!damage) {
+                return;
+            }
+
+            const text = scene.add.text(
+                targetView.container.x,
+                targetView.container.y - Math.round(targetView.sprite.displayHeight) - 96,
+                "-" + damage,
+                {
+                    fontFamily: "Segoe UI",
+                    fontSize: "42px",
+                    fontStyle: "900",
+                    color: "#ef4444"
+                }
+            ).setOrigin(0.5).setDepth(30);
+
+            text.setStroke("#7f1d1d", 6);
+
+            scene.tweens.add({
+                targets: text,
+                y: text.y - 55,
+                alpha: 0,
+                duration: 460,
+                ease: "Cubic.easeOut",
+                onComplete: () => {
+                    text.destroy();
+                }
+            });
+        }
+
+        function updateHud(arena) {
+            const championText = arena.champion
+                ? arena.champion.username + " (HP " + arena.champion.hp + ")"
+                : "-";
+            const challengerText = arena.challenger
+                ? arena.challenger.username + " (HP " + arena.challenger.hp + ")"
+                : "-";
+
+            const nextTurn = arena.turn === "champion" ? "Champion" : "Challenger";
+            const queueLimit = arena.settings?.maxQueue ?? 10;
+
+            ui.battleStatus.textContent =
+                "Champion: " + championText + "\n" +
+                "Challenger: " + challengerText + "\n" +
+                "Giliran berikutnya: " + nextTurn;
+
+            ui.queueMeta.textContent =
+                "Queue " + (arena.queue?.length || 0) + "/" + queueLimit +
+                " | Reserve: " + (arena.reserveCount || 0);
+
+            ui.queueList.innerHTML = "";
+
+            const queueItems = arena.queue || [];
+            if (queueItems.length === 0) {
+                const li = document.createElement("li");
+                li.textContent = "Queue kosong";
+                ui.queueList.appendChild(li);
+                return;
+            }
+
+            for (const player of queueItems) {
+                const li = document.createElement("li");
+                li.textContent = player.username + " (HP " + player.hp + ")";
+                ui.queueList.appendChild(li);
+            }
+        }
+
+        function clamp(value, min, max) {
+            return Math.min(max, Math.max(min, value));
+        }
+    </script>
+</body>
+</html>
