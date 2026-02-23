@@ -1,5 +1,9 @@
 const MAX_QUEUE = 10;
 const STARTING_HP = 30;
+const BASE_DAMAGE_PER_HIT = 2;
+const SWORD_DAMAGE_PER_HIT = 4;
+const ROUND_START_DELAY_MS = 1000;
+const SUMMON_PAUSE_MS = 3200;
 
 const GIFT_RULES = {
     rose: { type: "hp", amount: 1 },
@@ -7,7 +11,11 @@ const GIFT_RULES = {
     donut: { type: "hp", amount: 30 },
     love: { type: "hp", amount: 100 },
     corgi: { type: "hp", amount: 300 },
-    rosa: { type: "sword" }
+    rosa: { type: "evolve" },
+    "buket bunga": { type: "summon", summon: "lightning_mage", amount: 30 },
+    bouquet: { type: "summon", summon: "lightning_mage", amount: 30 },
+    "topi dan kumis": { type: "summon", summon: "fire_wizard", amount: 100 },
+    "topi kumis": { type: "summon", summon: "fire_wizard", amount: 100 }
 };
 
 class Player {
@@ -20,7 +28,7 @@ class Player {
     }
 
     attack(target) {
-        const damagePerHit = this.hasSword ? 2 : 1;
+        const damagePerHit = this.hasSword ? SWORD_DAMAGE_PER_HIT : BASE_DAMAGE_PER_HIT;
         target.hp = Math.max(0, target.hp - damagePerHit);
         return damagePerHit;
     }
@@ -65,6 +73,10 @@ class Arena {
 
         this.lastAttack = null;
         this.attackSequence = 0;
+        this.lastGift = null;
+        this.giftSequence = 0;
+        this.combatPauseUntil = 0;
+        this.activePairKey = "";
     }
 
     addViewer(username) {
@@ -167,6 +179,8 @@ class Arena {
     }
 
     startBattleIfReady() {
+        const previousPairKey = this.getPairKey();
+
         if (!this.champion) {
             this.champion = this.dequeueNextFighter();
         }
@@ -174,11 +188,25 @@ class Arena {
         if (!this.challenger) {
             this.challenger = this.dequeueNextFighter();
         }
+
+        const nextPairKey = this.getPairKey();
+        if (nextPairKey !== previousPairKey) {
+            this.activePairKey = nextPairKey;
+            if (nextPairKey) {
+                this.combatPauseUntil = Math.max(this.combatPauseUntil, Date.now() + ROUND_START_DELAY_MS);
+            }
+        } else if (!nextPairKey) {
+            this.activePairKey = "";
+        }
     }
 
     nextTurn() {
         this.startBattleIfReady();
         if (!this.champion || !this.challenger) {
+            return;
+        }
+
+        if (Date.now() < this.combatPauseUntil) {
             return;
         }
 
@@ -191,6 +219,7 @@ class Arena {
         const target = this.turn === "champion" ? this.challenger : this.champion;
         this.turn = this.turn === "champion" ? "challenger" : "champion";
 
+        const targetHpBefore = target.hp;
         let totalDamage = 0;
         let landedHits = 0;
 
@@ -205,16 +234,21 @@ class Arena {
         }
 
         this.attackSequence += 1;
+        const targetHpAfter = target.hp;
+        const targetDied = targetHpAfter <= 0;
         this.lastAttack = {
             id: this.attackSequence,
             attacker: attacker.username,
             target: target.username,
             totalDamage,
             hits: landedHits,
-            sword: attacker.hasSword
+            sword: attacker.hasSword,
+            targetHpBefore,
+            targetHpAfter,
+            died: targetDied
         };
 
-        if (target.hp <= 0) {
+        if (targetDied) {
             this.resolveDeath();
         }
     }
@@ -240,6 +274,7 @@ class Arena {
         winner.winStreak += 1;
 
         if (loser && this.players.has(loser.username)) {
+            loser.winStreak = 0;
             loser.resetForBattle();
             this.enqueue(loser.username);
         }
@@ -276,9 +311,54 @@ class Arena {
             return { applied: true, reason: "hp_added", amount: giftRule.amount };
         }
 
-        if (giftRule.type === "sword") {
+        if (giftRule.type === "evolve") {
             target.hasSword = true;
-            return { applied: true, reason: "sword_spawned" };
+            return { applied: true, reason: "tengu_evolved" };
+        }
+
+        if (giftRule.type === "summon") {
+            if (Date.now() < this.combatPauseUntil) {
+                return { applied: false, reason: "summon_in_progress" };
+            }
+
+            const opponent = this.getBattleOpponent(target.username);
+            if (!opponent) {
+                return { applied: false, reason: "summon_requires_active_battle" };
+            }
+
+            const damage = Math.max(0, Math.trunc(giftRule.amount) || 0);
+            const targetHpBefore = opponent.hp;
+            opponent.hp = Math.max(0, opponent.hp - damage);
+            const targetHpAfter = opponent.hp;
+            const targetDied = targetHpAfter <= 0;
+
+            this.giftSequence += 1;
+            this.lastGift = {
+                id: this.giftSequence,
+                kind: "summon",
+                summon: giftRule.summon,
+                sourceGift: giftName,
+                caster: target.username,
+                target: opponent.username,
+                damage,
+                targetHpBefore,
+                targetHpAfter,
+                died: targetDied
+            };
+
+            this.combatPauseUntil = Date.now() + SUMMON_PAUSE_MS;
+
+            if (targetDied) {
+                this.resolveDeath();
+            }
+
+            return {
+                applied: true,
+                reason: "summon_cast",
+                summon: giftRule.summon,
+                damage,
+                died: targetDied
+            };
         }
 
         return { applied: false, reason: "unsupported_gift" };
@@ -300,6 +380,29 @@ class Arena {
         return null;
     }
 
+    getBattleOpponent(username) {
+        if (!this.champion || !this.challenger) {
+            return null;
+        }
+
+        if (this.champion.username === username) {
+            return this.challenger;
+        }
+
+        if (this.challenger.username === username) {
+            return this.champion;
+        }
+
+        return null;
+    }
+
+    getPairKey() {
+        if (!this.champion || !this.challenger) {
+            return "";
+        }
+        return this.champion.username + "|" + this.challenger.username;
+    }
+
     isInBattle(username) {
         return Boolean(
             (this.champion && this.champion.username === username) ||
@@ -318,7 +421,11 @@ class Arena {
         if (typeof giftName !== "string") {
             return "";
         }
-        return giftName.trim().toLowerCase();
+        return giftName
+            .trim()
+            .toLowerCase()
+            .replace(/[_-]+/g, " ")
+            .replace(/\s+/g, " ");
     }
 
     toJSON() {
@@ -338,7 +445,8 @@ class Arena {
             queue: queuePlayers,
             reserveCount: this.reserve.length,
             turn: this.turn,
-            lastAttack: this.lastAttack
+            lastAttack: this.lastAttack,
+            lastGift: this.lastGift
         };
     }
 }

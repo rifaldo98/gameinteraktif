@@ -153,7 +153,9 @@
                         <option value="donut">Donut (+30 HP)</option>
                         <option value="love">Love (+100 HP)</option>
                         <option value="corgi">Corgi (+300 HP)</option>
-                        <option value="rosa">Rosa (Spawn Sword)</option>
+                        <option value="buket_bunga">Buket Bunga (Summon Lightning Mage, -30 HP)</option>
+                        <option value="topi_kumis">Topi dan Kumis (Summon Fire Wizard, -100 HP)</option>
+                        <option value="rosa">Rosa (Evolve Tengu)</option>
                     </select>
                     <button id="giftBtn">Send Gift</button>
                 </div>
@@ -188,23 +190,153 @@
         let championView = null;
         let challengerView = null;
         let lastAttackId = 0;
+        let lastGiftId = 0;
+        let introInProgress = false;
+        let summonInProgress = false;
+        let introPairKey = "";
+        let queuedAttackDuringIntro = null;
+        let deathApplyDelayTimer = null;
+        let pendingArenaState = null;
+        let bufferedArenaState = null;
         const SPRITE_NATIVE_FACING_RIGHT = true;
-        const SPRITE_FRAME_WIDTH = 112;
-        const SPRITE_FRAME_HEIGHT = 256;
-        const SPRITE_COLUMNS = 12;
-        const SPRITE_ACTIVE_FRAMES_PER_ROW = 12;
+        const SPRITE_FRAME_WIDTH = 128;
+        const SPRITE_FRAME_HEIGHT = 128;
         const SPRITE_CROP_LEFT = 0;
         const SPRITE_CROP_RIGHT = 0;
         const SPRITE_CROP_TOP = 0;
         const SPRITE_CROP_BOTTOM = 0;
-        const ROW_PUNCH_ATTACK = 0;
-        const ROW_PUNCH_DEFEND = 1;
-        const ROW_SWORD_ATTACK = 2;
-        const ROW_SWORD_DEFEND = 3;
-        const CHAMPION_TEXTURE_PATH = "fighter1_clean1.png";
-        const CHALLENGER_TEXTURE_PATH = "figther2_clean.png";
-        const CHAMPION_TEXTURE_KEY = "championFighter";
-        const CHALLENGER_TEXTURE_KEY = "challengerFighter";
+        const FORM_KNIGHT = "knight";
+        const FORM_TENGU = "tengu";
+        const FIGHT_READY_DELAY_MS = 1000;
+        const DEATH_TRANSITION_DELAY_MS = 1000;
+        const INTRO_WALK_MS = 430;
+        const BACKGROUND_TEXTURE_KEY = "arenaBackground";
+        const SSJ_AURA_TEXTURE_KEY = "ssjAuraSprite";
+        const SSJ_AURA_ANIM_KEY = "ssjAuraLoop";
+        const SSJ_AURA_FRAME_WIDTH = 204;
+        const SSJ_AURA_FRAME_HEIGHT = 228;
+        const SSJ_AURA_FRAME_COUNT = 4;
+        const SSJ_AURA_WIN_STREAK = 3;
+        const SSJ_AURA_KNIGHT_CHALLENGER_NUDGE_X = -16;
+        const SSJ_AURA_SOUND_PATH = "sound/ssj%20aura.mp3";
+        const SSJ_AURA_STANDBY_SOUND_PATH = "sound/ssj%20aura%20standby.mp3";
+        const FIGHT_START_SOUND_PATH = "sound/fight.mp3";
+        const YOU_LOSE_SOUND_PATH = "sound/you%20lose.mp3";
+        const FIRE_ATTACK_SOUND_PATH = "sound/fireattack.mp3";
+        const FIRE_BOOM_SOUND_PATH = "sound/fireboom.mp3";
+        const LIGHTNING_ATTACK_SOUND_PATH = "sound/lightning%20attack.mp3";
+        const LIGHTNING_BOOM_SOUND_PATH = "sound/lightning%20boom1.mp3";
+        const SUMMON_RUN_SOUND_PATH = "sound/running.mp3";
+        const SUMMON_JUMP_SOUND_PATH = "sound/jump.mp3";
+        const OVERLAY_BACKSOUND_SOUND_PATH = "sound/backsoundoverlay.mp3";
+        const KNIGHT_SLASH_SOUND_PATHS = [
+            "sound/slashknight1.mp3",
+            "sound/slashknight2.mp3"
+        ];
+        const TENGU_SLASH_SOUND_PATHS = [
+            "sound/slashtengu1.mp3",
+            "sound/slashtengu2.mp3"
+        ];
+        const SUMMON_OVERLAY_SOUND_PATHS = {
+            fire_wizard: "sound/summonfirewizard.mp3",
+            lightning_mage: "sound/summonmage.mp3",
+            tengu_evolve: "sound/summontengu.mp3"
+        };
+        const CHAMPION_AURA_COLOR = 0x60a5fa;
+        const CHALLENGER_AURA_COLOR = 0xf97316;
+        const SUMMON_OVERLAY_TEXTURES = {
+            fire_wizard: {
+                key: "summonFireOverlay",
+                path: "fire wizard overlay.png"
+            },
+            lightning_mage: {
+                key: "summonLightOverlay",
+                path: "lightning mage overlay.png"
+            },
+            tengu_evolve: {
+                key: "summonTenguOverlay",
+                path: "tengu overlay.png"
+            }
+        };
+        const SUMMON_OVERLAY_FADE_MS = 180;
+        const SUMMON_OVERLAY_HOLD_MS = 420;
+        const SUMMON_OVERLAY_TOTAL_MS = (SUMMON_OVERLAY_FADE_MS * 2) + SUMMON_OVERLAY_HOLD_MS;
+        const SUMMON_TEXTURE_KEYS = {
+            fire_wizard: {
+                run: "summonFireRun",
+                jump: "summonFireJump",
+                cast: "summonFireCast",
+                hurt: "summonFireHurt"
+            },
+            lightning_mage: {
+                run: "summonLightRun",
+                jump: "summonLightJump",
+                cast: "summonLightCast",
+                hurt: "summonLightHurt"
+            }
+        };
+        const SUMMON_DEFS = {
+            fire_wizard: {
+                label: "Fire Wizard",
+                castType: "fire",
+                run: { path: "Fire Wizard/Run.png", frameCount: 8, frameRate: 12 },
+                jump: { path: "Fire Wizard/Jump.png", frameCount: 9, frameRate: 14 },
+                cast: { path: "Fire Wizard/Flame_jet.png", frameCount: 14, frameRate: 15 },
+                hurt: { path: "Fire Wizard/Hurt.png", frameCount: 3, frameRate: 10 },
+                explosionPathPrefix: "Fire Wizard/Explosion/Explosion_",
+                explosionSize: 360,
+                castDurationMs: 920
+            },
+            lightning_mage: {
+                label: "Lightning Mage",
+                castType: "lightning",
+                run: { path: "Lightning Mage/Run.png", frameCount: 8, frameRate: 12 },
+                jump: { path: "Lightning Mage/Jump.png", frameCount: 8, frameRate: 14 },
+                cast: { path: "Lightning Mage/Light_charge.png", frameCount: 13, frameRate: 15 },
+                hurt: { path: "Lightning Mage/Hurt.png", frameCount: 3, frameRate: 10 },
+                explosionPathPrefix: "Lightning Mage/Explosion/Explosion_",
+                explosionSize: 400,
+                castDurationMs: 900
+            }
+        };
+        const SUMMON_EXPLOSION_FRAME_TOTAL = 10;
+        const CHAMPION_SHEETS = {
+            knight: {
+                attack1: { textureKey: "championKnightAttack1", path: "Knight_1/Attack 1.png", frameCount: 5 },
+                attack2: { textureKey: "championKnightAttack2", path: "Knight_1/Attack 2.png", frameCount: 4 },
+                defend: { textureKey: "championKnightIdle", path: "Knight_1/Idle.png", frameCount: 4 },
+                walk: { textureKey: "championKnightWalk", path: "Knight_1/Walk.png", frameCount: 8 },
+                hurt: { textureKey: "championKnightHurt", path: "Knight_1/Hurt.png", frameCount: 2 },
+                dead: { textureKey: "championKnightDead", path: "Knight_1/Dead.png", frameCount: 6 }
+            },
+            tengu: {
+                attack1: { textureKey: "championTenguAttack1", path: "tengu1/Attack_1.png", frameCount: 3 },
+                attack2: { textureKey: "championTenguAttack2", path: "tengu1/Attack_2.png", frameCount: 6 },
+                defend: { textureKey: "championTenguIdle", path: "tengu1/Idle.png", frameCount: 6 },
+                walk: { textureKey: "championTenguWalk", path: "tengu1/Walk.png", frameCount: 8 },
+                hurt: { textureKey: "championTenguHurt", path: "tengu1/Hurt.png", frameCount: 3 },
+                dead: { textureKey: "championTenguDead", path: "tengu1/Dead.png", frameCount: 6 }
+            }
+        };
+        const CHALLENGER_SHEETS = {
+            knight: {
+                attack1: { textureKey: "challengerKnightAttack1", path: "Knight_2/Attack 1.png", frameCount: 5 },
+                attack2: { textureKey: "challengerKnightAttack2", path: "Knight_2/Attack 2.png", frameCount: 4 },
+                defend: { textureKey: "challengerKnightIdle", path: "Knight_2/Idle.png", frameCount: 4 },
+                walk: { textureKey: "challengerKnightWalk", path: "Knight_2/Walk.png", frameCount: 8 },
+                hurt: { textureKey: "challengerKnightHurt", path: "Knight_2/Hurt.png", frameCount: 2 },
+                dead: { textureKey: "challengerKnightDead", path: "Knight_2/Dead.png", frameCount: 6 }
+            },
+            tengu: {
+                attack1: { textureKey: "challengerTenguAttack1", path: "tengu2/Attack_1.png", frameCount: 6 },
+                attack2: { textureKey: "challengerTenguAttack2", path: "tengu2/Attack_2.png", frameCount: 4 },
+                defend: { textureKey: "challengerTenguIdle", path: "tengu2/Idle.png", frameCount: 6 },
+                walk: { textureKey: "challengerTenguWalk", path: "tengu2/Walk.png", frameCount: 8 },
+                hurt: { textureKey: "challengerTenguHurt", path: "tengu2/Hurt.png", frameCount: 3 },
+                dead: { textureKey: "challengerTenguDead", path: "tengu2/Dead.png", frameCount: 6 }
+            }
+        };
+        const battleFx = createBattleFx();
 
         const config = {
             type: Phaser.AUTO,
@@ -214,53 +346,117 @@
             backgroundColor: "#f8fafc",
             pixelArt: true,
             antialias: false,
-            scene: { preload, create }
+            scene: { preload, create, update }
         };
 
         new Phaser.Game(config);
 
         function preload() {
-            this.load.spritesheet(CHAMPION_TEXTURE_KEY, CHAMPION_TEXTURE_PATH, {
-                frameWidth: SPRITE_FRAME_WIDTH,
-                frameHeight: SPRITE_FRAME_HEIGHT
+            this.load.image(BACKGROUND_TEXTURE_KEY, "background.png");
+            this.load.spritesheet(SSJ_AURA_TEXTURE_KEY, "ssj sprite.png", {
+                frameWidth: SSJ_AURA_FRAME_WIDTH,
+                frameHeight: SSJ_AURA_FRAME_HEIGHT
             });
+            preloadFighterSheets(this, CHAMPION_SHEETS);
+            preloadFighterSheets(this, CHALLENGER_SHEETS);
+            preloadSummonOverlays(this);
+            preloadSummonSheets(this);
+            preloadSummonExplosions(this);
+        }
 
-            this.load.spritesheet(CHALLENGER_TEXTURE_KEY, CHALLENGER_TEXTURE_PATH, {
-                frameWidth: SPRITE_FRAME_WIDTH,
-                frameHeight: SPRITE_FRAME_HEIGHT
-            });
+        function preloadFighterSheets(scene, sheets) {
+            for (const formSheets of Object.values(sheets)) {
+                for (const sheet of Object.values(formSheets)) {
+                    scene.load.spritesheet(sheet.textureKey, sheet.path, {
+                        frameWidth: SPRITE_FRAME_WIDTH,
+                        frameHeight: SPRITE_FRAME_HEIGHT
+                    });
+                }
+            }
+        }
+
+        function preloadSummonSheets(scene) {
+            for (const [summonId, summonDef] of Object.entries(SUMMON_DEFS)) {
+                const keys = SUMMON_TEXTURE_KEYS[summonId];
+                if (!keys) {
+                    continue;
+                }
+
+                scene.load.spritesheet(keys.run, summonDef.run.path, {
+                    frameWidth: SPRITE_FRAME_WIDTH,
+                    frameHeight: SPRITE_FRAME_HEIGHT
+                });
+                scene.load.spritesheet(keys.jump, summonDef.jump.path, {
+                    frameWidth: SPRITE_FRAME_WIDTH,
+                    frameHeight: SPRITE_FRAME_HEIGHT
+                });
+                scene.load.spritesheet(keys.cast, summonDef.cast.path, {
+                    frameWidth: SPRITE_FRAME_WIDTH,
+                    frameHeight: SPRITE_FRAME_HEIGHT
+                });
+                scene.load.spritesheet(keys.hurt, summonDef.hurt.path, {
+                    frameWidth: SPRITE_FRAME_WIDTH,
+                    frameHeight: SPRITE_FRAME_HEIGHT
+                });
+            }
+        }
+
+        function preloadSummonOverlays(scene) {
+            for (const overlayDef of Object.values(SUMMON_OVERLAY_TEXTURES)) {
+                if (!overlayDef || !overlayDef.key || !overlayDef.path) {
+                    continue;
+                }
+
+                scene.load.image(overlayDef.key, overlayDef.path);
+            }
+        }
+
+        function preloadSummonExplosions(scene) {
+            for (const summonId of Object.keys(SUMMON_DEFS)) {
+                for (let i = 1; i <= SUMMON_EXPLOSION_FRAME_TOTAL; i += 1) {
+                    const key = getSummonExplosionFrameKey(summonId, i);
+                    const path = SUMMON_DEFS[summonId].explosionPathPrefix + i + ".png";
+                    scene.load.image(key, path);
+                }
+            }
         }
 
         function create() {
             sceneRef = this;
             createAnimations(this);
             this.cameras.main.roundPixels = true;
+            this.input.once("pointerdown", () => {
+                battleFx.unlockAudio();
+            });
 
-            this.add.rectangle(640, 360, 1280, 720, 0xf8fafc).setDepth(-10);
-            this.add.rectangle(640, 670, 1280, 100, 0xe2e8f0).setDepth(-9);
+            addArenaBackground(this);
+            this.add.rectangle(640, 360, 1280, 720, 0x0b1220, 0.26).setDepth(-29);
+            this.add.rectangle(640, 674, 1280, 112, 0x0f172a, 0.44).setDepth(-28);
 
             championView = createFighterView(this, {
-                x: 525,
-                y: 620,
+                x: 570,
+                y: 666,
                 faceRight: true,
                 dashDirection: 1,
-                textureKey: CHAMPION_TEXTURE_KEY,
+                textureKey: CHAMPION_SHEETS.knight.defend.textureKey,
                 animPrefix: "champion",
                 baseDepth: 10,
-                scale: 1.2,
-                spriteOffsetY: 0
+                scale: 2.4,
+                spriteOffsetY: 0,
+                auraColor: CHAMPION_AURA_COLOR
             });
 
             challengerView = createFighterView(this, {
-                x: 755,
-                y: 620,
+                x: 710,
+                y: 666,
                 faceRight: false,
                 dashDirection: -1,
-                textureKey: CHALLENGER_TEXTURE_KEY,
+                textureKey: CHALLENGER_SHEETS.knight.defend.textureKey,
                 animPrefix: "challenger",
                 baseDepth: 10,
-                scale: 1.2,
-                spriteOffsetY: 0
+                scale: 2.4,
+                spriteOffsetY: 0,
+                auraColor: CHALLENGER_AURA_COLOR
             });
 
             bindControls();
@@ -270,43 +466,155 @@
             });
         }
 
-        function createAnimations(scene) {
-            createAnimationSet(scene, CHAMPION_TEXTURE_KEY, "champion");
-            createAnimationSet(scene, CHALLENGER_TEXTURE_KEY, "challenger");
+        function update() {
+            updateSsjAuraPlacement(championView);
+            updateSsjAuraPlacement(challengerView);
         }
 
-        function createAnimationSet(scene, textureKey, prefix) {
-            createAnimation(scene, {
-                key: prefix + "-punch-attack",
-                textureKey,
-                row: ROW_PUNCH_ATTACK,
-                frameRate: 14,
-                repeat: 0
-            });
+        function createAnimations(scene) {
+            createAnimationSet(scene, "champion", CHAMPION_SHEETS);
+            createAnimationSet(scene, "challenger", CHALLENGER_SHEETS);
+            createSummonAnimations(scene);
+            createSsjAuraAnimation(scene);
+        }
 
+        function createSsjAuraAnimation(scene) {
             createAnimation(scene, {
-                key: prefix + "-punch-defend",
-                textureKey,
-                row: ROW_PUNCH_DEFEND,
-                frameRate: 9,
+                key: SSJ_AURA_ANIM_KEY,
+                textureKey: SSJ_AURA_TEXTURE_KEY,
+                frameCount: SSJ_AURA_FRAME_COUNT,
+                frameRate: 12,
                 repeat: -1
             });
+        }
 
-            createAnimation(scene, {
-                key: prefix + "-sword-attack",
-                textureKey,
-                row: ROW_SWORD_ATTACK,
-                frameRate: 14,
-                repeat: 0
-            });
+        function addArenaBackground(scene) {
+            const background = scene.add.image(640, 360, BACKGROUND_TEXTURE_KEY).setDepth(-30);
+            const texture = scene.textures.get(BACKGROUND_TEXTURE_KEY);
+            if (texture && typeof texture.setFilter === "function") {
+                texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+            }
 
-            createAnimation(scene, {
-                key: prefix + "-sword-defend",
-                textureKey,
-                row: ROW_SWORD_DEFEND,
-                frameRate: 9,
-                repeat: -1
-            });
+            const source = texture && typeof texture.getSourceImage === "function"
+                ? texture.getSourceImage()
+                : null;
+
+            if (source && source.width > 0 && source.height > 0) {
+                const scale = Math.max(1280 / source.width, 720 / source.height);
+                background.setScale(scale);
+            } else {
+                background.setDisplaySize(1280, 720);
+            }
+        }
+
+        function createAnimationSet(scene, prefix, sheets) {
+            for (const [formName, formSheets] of Object.entries(sheets)) {
+                const baseKey = prefix + "-" + formName;
+
+                createAnimation(scene, {
+                    key: baseKey + "-attack-1",
+                    textureKey: formSheets.attack1.textureKey,
+                    frameCount: formSheets.attack1.frameCount,
+                    frameRate: 14,
+                    repeat: 0
+                });
+
+                createAnimation(scene, {
+                    key: baseKey + "-attack-2",
+                    textureKey: formSheets.attack2.textureKey,
+                    frameCount: formSheets.attack2.frameCount,
+                    frameRate: 14,
+                    repeat: 0
+                });
+
+                createAnimation(scene, {
+                    key: baseKey + "-defend",
+                    textureKey: formSheets.defend.textureKey,
+                    frameCount: formSheets.defend.frameCount,
+                    frameRate: 9,
+                    repeat: -1
+                });
+
+                createAnimation(scene, {
+                    key: baseKey + "-walk",
+                    textureKey: formSheets.walk.textureKey,
+                    frameCount: formSheets.walk.frameCount,
+                    frameRate: 11,
+                    repeat: -1
+                });
+
+                createAnimation(scene, {
+                    key: baseKey + "-hurt",
+                    textureKey: formSheets.hurt.textureKey,
+                    frameCount: formSheets.hurt.frameCount,
+                    frameRate: 11,
+                    repeat: 0
+                });
+
+                createAnimation(scene, {
+                    key: baseKey + "-dead",
+                    textureKey: formSheets.dead.textureKey,
+                    frameCount: formSheets.dead.frameCount,
+                    frameRate: 8,
+                    repeat: 0
+                });
+            }
+        }
+
+        function createSummonAnimations(scene) {
+            for (const [summonId, summonDef] of Object.entries(SUMMON_DEFS)) {
+                const keys = SUMMON_TEXTURE_KEYS[summonId];
+                if (!keys) {
+                    continue;
+                }
+
+                createAnimation(scene, {
+                    key: getSummonAnimKey(summonId, "run"),
+                    textureKey: keys.run,
+                    frameCount: summonDef.run.frameCount,
+                    frameRate: summonDef.run.frameRate,
+                    repeat: -1
+                });
+
+                createAnimation(scene, {
+                    key: getSummonAnimKey(summonId, "jump"),
+                    textureKey: keys.jump,
+                    frameCount: summonDef.jump.frameCount,
+                    frameRate: summonDef.jump.frameRate,
+                    repeat: 0
+                });
+
+                createAnimation(scene, {
+                    key: getSummonAnimKey(summonId, "cast"),
+                    textureKey: keys.cast,
+                    frameCount: summonDef.cast.frameCount,
+                    frameRate: summonDef.cast.frameRate,
+                    repeat: 0
+                });
+
+                createAnimation(scene, {
+                    key: getSummonAnimKey(summonId, "hurt"),
+                    textureKey: keys.hurt,
+                    frameCount: summonDef.hurt.frameCount,
+                    frameRate: summonDef.hurt.frameRate,
+                    repeat: 0
+                });
+
+                const explosionAnimKey = getSummonExplosionAnimKey(summonId);
+                if (!scene.anims.exists(explosionAnimKey)) {
+                    const explosionFrames = [];
+                    for (let i = 1; i <= SUMMON_EXPLOSION_FRAME_TOTAL; i += 1) {
+                        explosionFrames.push({ key: getSummonExplosionFrameKey(summonId, i) });
+                    }
+
+                    scene.anims.create({
+                        key: explosionAnimKey,
+                        frames: explosionFrames,
+                        frameRate: 18,
+                        repeat: 0
+                    });
+                }
+            }
         }
 
         function createAnimation(scene, options) {
@@ -314,12 +622,15 @@
                 return;
             }
 
-            const rowStart = options.row * SPRITE_COLUMNS;
+            if (!Number.isInteger(options.frameCount) || options.frameCount < 1) {
+                return;
+            }
+
             scene.anims.create({
                 key: options.key,
                 frames: scene.anims.generateFrameNumbers(options.textureKey, {
-                    start: rowStart,
-                    end: rowStart + (SPRITE_ACTIVE_FRAMES_PER_ROW - 1)
+                    start: 0,
+                    end: options.frameCount - 1
                 }),
                 frameRate: options.frameRate,
                 repeat: options.repeat
@@ -329,7 +640,7 @@
         function createFighterView(scene, options) {
             const container = scene.add.container(options.x, options.y);
 
-            const sprite = scene.add.sprite(0, 0, options.textureKey).play(options.animPrefix + "-punch-defend");
+            const sprite = scene.add.sprite(0, 0, options.textureKey).play(getDefendAnimKeyForForm(options.animPrefix, FORM_KNIGHT));
             sprite.setOrigin(0.5, 1);
             sprite.setScale(options.scale || 1);
             sprite.setPosition(0, options.spriteOffsetY || 0);
@@ -342,16 +653,106 @@
                 );
             }
             setSpriteFacing(sprite, options.faceRight);
+            const auraColor = options.auraColor || 0x60a5fa;
+            const auraBody = scene.add.ellipse(
+                0,
+                -Math.round(sprite.displayHeight * 0.56),
+                Math.round(sprite.displayWidth * 0.78),
+                Math.round(sprite.displayHeight * 0.9),
+                auraColor,
+                0.19
+            );
+            auraBody.setBlendMode(Phaser.BlendModes.ADD);
+
+            const ssjAura = scene.add.sprite(0, -Math.round(sprite.displayHeight * 0.58), SSJ_AURA_TEXTURE_KEY, 0);
+            ssjAura.setBlendMode(Phaser.BlendModes.ADD);
+            ssjAura.setDisplaySize(
+                Math.round(sprite.displayWidth * 1.34),
+                Math.round(sprite.displayHeight * 1.52)
+            );
+            ssjAura.setAlpha(0.38);
+            ssjAura.setVisible(false);
+            setSpriteFacing(ssjAura, options.faceRight);
+            if (scene.anims.exists(SSJ_AURA_ANIM_KEY)) {
+                ssjAura.play(SSJ_AURA_ANIM_KEY, true);
+            }
+
+            const swordAura = scene.add.circle(
+                options.dashDirection * Math.round(sprite.displayWidth * 0.24),
+                -Math.round(sprite.displayHeight * 0.57),
+                Math.max(10, Math.round(sprite.displayWidth * 0.08)),
+                auraColor,
+                0.32
+            );
+            swordAura.setBlendMode(Phaser.BlendModes.ADD);
+            swordAura.setVisible(false);
+
+            scene.tweens.add({
+                targets: auraBody,
+                alpha: { from: 0.12, to: 0.28 },
+                scaleX: { from: 0.94, to: 1.08 },
+                scaleY: { from: 0.9, to: 1.1 },
+                yoyo: true,
+                repeat: -1,
+                duration: 520,
+                ease: "Sine.easeInOut"
+            });
+
+            scene.tweens.add({
+                targets: swordAura,
+                alpha: { from: 0.12, to: 0.5 },
+                scaleX: { from: 0.85, to: 1.3 },
+                scaleY: { from: 0.85, to: 1.3 },
+                yoyo: true,
+                repeat: -1,
+                duration: 220,
+                ease: "Sine.easeInOut"
+            });
+
+            scene.tweens.add({
+                targets: ssjAura,
+                alpha: { from: 0.24, to: 0.58 },
+                scaleX: { from: 0.94, to: 1.08 },
+                scaleY: { from: 0.94, to: 1.08 },
+                yoyo: true,
+                repeat: -1,
+                duration: 260,
+                ease: "Sine.easeInOut"
+            });
 
             const hpY = -Math.round(sprite.displayHeight) - 46;
             const nameY = hpY - 34;
+            const streakY = nameY - 24;
+            const championY = streakY - 22;
+            const crownY = championY - 22;
+
+            const crownDisplay = createGeneratedCrown(scene, crownY);
+
+            const championText = scene.add.text(0, championY, "CHAMPION", {
+                fontFamily: "Segoe UI",
+                fontSize: "13px",
+                color: "#fef08a",
+                fontStyle: "bold"
+            }).setOrigin(0.5);
+            championText.setStroke("#7f1d1d", 4);
+            championText.setVisible(false);
+
+            const streakText = scene.add.text(0, streakY, "", {
+                fontFamily: "Segoe UI",
+                fontSize: "16px",
+                color: "#fde68a",
+                fontStyle: "bold"
+            }).setOrigin(0.5);
+            streakText.setStroke("#7f1d1d", 4);
+            streakText.setVisible(false);
 
             const nameText = scene.add.text(0, nameY, "-", {
                 fontFamily: "Segoe UI",
                 fontSize: "23px",
-                color: "#0f172a",
+                color: "#ffffff",
                 fontStyle: "bold"
             }).setOrigin(0.5);
+            nameText.setStroke("#0f172a", 5);
 
             const hpBg = scene.add.rectangle(0, hpY, 220, 18, 0x1f2937, 0.9)
                 .setStrokeStyle(2, 0xffffff, 0.35);
@@ -366,13 +767,20 @@
                 fontStyle: "bold"
             }).setOrigin(0.5);
 
-            container.add([sprite, nameText, hpBg, hpFill, hpText]);
+            container.add([auraBody, ssjAura, swordAura, sprite, crownDisplay, championText, streakText, nameText, hpBg, hpFill, hpText]);
             container.setVisible(false);
             container.setDepth(options.baseDepth || 10);
 
             return {
                 container,
                 sprite,
+                auraBody,
+                ssjAura,
+                swordAura,
+                auraColor,
+                crownDisplay,
+                championText,
+                streakText,
                 nameText,
                 hpFill,
                 hpText,
@@ -383,8 +791,75 @@
                 homeY: options.y,
                 playerUsername: "",
                 isAttacking: false,
-                hasSword: false
+                hasSword: false,
+                ssjActive: false,
+                ssjTier: 0,
+                ssjAuraMode: "base",
+                form: FORM_KNIGHT,
+                currentHp: 0,
+                currentMaxHp: 0,
+                isDeadAnimating: false
             };
+        }
+
+        function createGeneratedCrown(scene, y) {
+            const crownContainer = scene.add.container(0, y);
+
+            const glow = scene.add.ellipse(0, 6, 104, 34, 0xf59e0b, 0.22);
+            glow.setBlendMode(Phaser.BlendModes.ADD);
+
+            const crown = scene.add.graphics();
+            crown.fillStyle(0xfbbf24, 1);
+            crown.fillRoundedRect(-42, 8, 84, 18, 5);
+            crown.fillTriangle(-38, 8, -24, -24, -10, 8);
+            crown.fillTriangle(-10, 8, 0, -34, 10, 8);
+            crown.fillTriangle(10, 8, 24, -24, 38, 8);
+            crown.lineStyle(2, 0x78350f, 0.9);
+            crown.strokeRoundedRect(-42, 8, 84, 18, 5);
+            crown.strokeTriangle(-38, 8, -24, -24, -10, 8);
+            crown.strokeTriangle(-10, 8, 0, -34, 10, 8);
+            crown.strokeTriangle(10, 8, 24, -24, 38, 8);
+
+            const gemLeft = scene.add.circle(-20, -6, 4, 0x60a5fa, 1).setStrokeStyle(2, 0x0f172a, 0.7);
+            const gemMid = scene.add.circle(0, -14, 5, 0xf43f5e, 1).setStrokeStyle(2, 0x7f1d1d, 0.85);
+            const gemRight = scene.add.circle(20, -6, 4, 0x34d399, 1).setStrokeStyle(2, 0x064e3b, 0.85);
+
+            const sparkA = scene.add.circle(-10, -28, 1.8, 0xfffbeb, 0.9);
+            const sparkB = scene.add.circle(12, -31, 1.6, 0xfffbeb, 0.85);
+
+            crownContainer.add([glow, crown, gemLeft, gemMid, gemRight, sparkA, sparkB]);
+            crownContainer.setVisible(false);
+
+            scene.tweens.add({
+                targets: crownContainer,
+                y: { from: y - 1, to: y + 1 },
+                duration: 700,
+                ease: "Sine.easeInOut",
+                yoyo: true,
+                repeat: -1
+            });
+
+            scene.tweens.add({
+                targets: glow,
+                alpha: { from: 0.14, to: 0.3 },
+                duration: 440,
+                ease: "Sine.easeInOut",
+                yoyo: true,
+                repeat: -1
+            });
+
+            scene.tweens.add({
+                targets: [sparkA, sparkB],
+                alpha: { from: 0.25, to: 0.95 },
+                scaleX: { from: 0.7, to: 1.25 },
+                scaleY: { from: 0.7, to: 1.25 },
+                duration: 320,
+                ease: "Sine.easeInOut",
+                yoyo: true,
+                repeat: -1
+            });
+
+            return crownContainer;
         }
 
         function resetViewTransform(view) {
@@ -400,6 +875,7 @@
             view.container.y = view.homeY;
             view.container.setDepth(view.baseDepth || 10);
             view.sprite.clearTint();
+            updateAuraForView(view);
         }
 
         function setSpriteFacing(sprite, faceRight) {
@@ -407,8 +883,105 @@
             sprite.setFlipX(flipX);
         }
 
+        function updateAuraForView(view) {
+            if (!view || !view.auraBody || !view.swordAura || !view.ssjAura) {
+                return;
+            }
+
+            const hasPlayer = Boolean(view.playerUsername && view.container.visible);
+            const baseAlpha = view.ssjActive
+                ? (view.hasSword ? 0.2 : 0.13)
+                : (view.hasSword ? 0.23 : 0.15);
+
+            view.auraBody.setVisible(hasPlayer);
+            view.auraBody.setAlpha(baseAlpha);
+            view.auraBody.setFillStyle(view.auraColor, baseAlpha);
+            view.auraBody.y = -Math.round(view.sprite.displayHeight * 0.56);
+            view.auraBody.setDisplaySize(
+                Math.round(view.sprite.displayWidth * 0.78),
+                Math.round(view.sprite.displayHeight * 0.9)
+            );
+
+            view.swordAura.x = view.dashDirection * Math.round(view.sprite.displayWidth * 0.24);
+            view.swordAura.y = -Math.round(view.sprite.displayHeight * 0.57);
+            const swordRadius = Math.max(10, Math.round(view.sprite.displayWidth * 0.08));
+            if (typeof view.swordAura.setRadius === "function") {
+                view.swordAura.setRadius(swordRadius);
+            } else {
+                view.swordAura.setDisplaySize(swordRadius * 2, swordRadius * 2);
+            }
+            view.swordAura.setFillStyle(view.auraColor, 0.34);
+            view.swordAura.setVisible(hasPlayer && view.hasSword);
+
+            const ssjVisible = hasPlayer && view.ssjActive && !view.isDeadAnimating && view.currentHp > 0;
+            syncSsjAuraMode(view);
+            updateSsjAuraPlacement(view);
+            view.ssjAura.setVisible(ssjVisible);
+            battleFx.syncSsjAuraAudio(view.animPrefix, ssjVisible);
+        }
+
+        function syncSsjAuraMode(view) {
+            if (!view || !view.ssjAura) {
+                return;
+            }
+
+            if (view.ssjAuraMode === "base") {
+                return;
+            }
+
+            const auraScene = view.ssjAura.scene;
+            view.ssjAuraMode = "base";
+            view.ssjAura.stop();
+            view.ssjAura.setTexture(SSJ_AURA_TEXTURE_KEY, 0);
+            if (auraScene && auraScene.anims.exists(SSJ_AURA_ANIM_KEY)) {
+                view.ssjAura.play(SSJ_AURA_ANIM_KEY, true);
+            }
+        }
+
+        function updateSsjAuraPlacement(view) {
+            if (!view || !view.sprite || !view.ssjAura) {
+                return;
+            }
+
+            const isTengu = view.form === FORM_TENGU;
+            const ssjWidthScale = isTengu ? 1.42 : 1.34;
+            const ssjHeightScale = isTengu ? 1.64 : 1.52;
+            const ssjBaseY = -Math.round(view.sprite.displayHeight * (isTengu ? 0.56 : 0.51));
+
+            view.ssjAura.setFlipX(view.sprite.flipX);
+            view.ssjAura.setDisplaySize(
+                Math.round(view.sprite.displayWidth * ssjWidthScale),
+                Math.round(view.sprite.displayHeight * ssjHeightScale)
+            );
+
+            const currentAnimKey = view.sprite.anims.currentAnim?.key || "";
+            const isWalking = currentAnimKey.endsWith("-walk");
+            const walkForwardShift = isWalking
+                ? view.dashDirection * Math.round(view.sprite.displayWidth * (isTengu ? 0.05 : 0.06))
+                : 0;
+            const walkFrame = Number(view.sprite.anims.currentFrame?.index) || 0;
+            const walkBob = isWalking
+                ? (walkFrame % 2 === 0 ? -1 : 1) * Math.max(1, Math.round(view.sprite.displayHeight * 0.01))
+                : 0;
+
+            const spriteCenterBias = view.sprite.flipX
+                ? Math.round(view.sprite.displayWidth * (isTengu ? 0.02 : 0.026))
+                : -Math.round(view.sprite.displayWidth * (isTengu ? 0.02 : 0.026));
+            const auraTextureBias = view.ssjAura.flipX
+                ? Math.round(view.ssjAura.displayWidth * (isTengu ? 0.05 : 0.09))
+                : -Math.round(view.ssjAura.displayWidth * (isTengu ? 0.05 : 0.09));
+            const inwardCombatBias = view.dashDirection * Math.round(view.sprite.displayWidth * (isTengu ? 0.012 : 0.018));
+            const challengerKnightNudge = (!isTengu && view.dashDirection < 0)
+                ? SSJ_AURA_KNIGHT_CHALLENGER_NUDGE_X
+                : 0;
+
+            view.ssjAura.x = spriteCenterBias + auraTextureBias + inwardCombatBias + walkForwardShift + challengerKnightNudge;
+            view.ssjAura.y = ssjBaseY + walkBob;
+        }
+
         function bindControls() {
             ui.joinBtn.addEventListener("click", () => {
+                battleFx.unlockAudio();
                 const username = ui.viewerName.value.trim();
                 if (!username) {
                     return;
@@ -421,6 +994,7 @@
             });
 
             ui.leaveBtn.addEventListener("click", () => {
+                battleFx.unlockAudio();
                 const username = ui.viewerName.value.trim();
                 if (!username) {
                     return;
@@ -430,6 +1004,7 @@
             });
 
             ui.giftBtn.addEventListener("click", () => {
+                battleFx.unlockAudio();
                 const username = ui.giftUser.value.trim();
                 const gift = ui.giftType.value;
                 if (!username || !gift) {
@@ -452,16 +1027,318 @@
             });
         }
 
+        function applyPendingArenaState(scene, options) {
+            const deferred = pendingArenaState;
+            pendingArenaState = null;
+            if (!deferred) {
+                return;
+            }
+
+            applyArenaState(deferred);
+            if (options?.replayAttack) {
+                maybeAnimateLastAttack(scene, deferred.lastAttack);
+            }
+            updateHud(deferred);
+        }
+
+        function schedulePendingArenaApply(scene, deferMs, options) {
+            if (!scene) {
+                return;
+            }
+
+            const delayMs = Math.max(0, Number(deferMs) || 0);
+            if (deathApplyDelayTimer) {
+                deathApplyDelayTimer.remove(false);
+                deathApplyDelayTimer = null;
+            }
+
+            deathApplyDelayTimer = scene.time.delayedCall(delayMs, () => {
+                deathApplyDelayTimer = null;
+                summonInProgress = false;
+                applyPendingArenaState(scene, options);
+
+                if (bufferedArenaState) {
+                    const buffered = bufferedArenaState;
+                    bufferedArenaState = null;
+                    renderArena(buffered);
+                }
+            });
+        }
+
         function renderArena(arena) {
             if (!sceneRef || !arena) {
                 return;
             }
 
+            if (deathApplyDelayTimer) {
+                bufferedArenaState = arena;
+                updateHud(arena);
+                return;
+            }
+
+            const incomingGift = arena.lastGift;
+            const isNewSummonGift = Boolean(
+                incomingGift &&
+                incomingGift.kind === "summon" &&
+                incomingGift.id &&
+                incomingGift.id !== lastGiftId
+            );
+
+            if (isNewSummonGift) {
+                const summonViews = resolveSummonViews(incomingGift);
+                if (summonViews) {
+                    const result = maybeAnimateLastGift(sceneRef, incomingGift);
+                    const giftKillDelay = Boolean(incomingGift?.died) ? DEATH_TRANSITION_DELAY_MS : 1000;
+                    const deferMs = Math.max(giftKillDelay, Number(result?.deferStateApplyMs) || giftKillDelay);
+
+                    pendingArenaState = arena;
+                    schedulePendingArenaApply(sceneRef, deferMs, { replayAttack: true });
+
+                    updateHud(arena);
+                    return;
+                }
+
+                lastGiftId = incomingGift.id;
+            }
+
+            const incomingAttack = arena.lastAttack;
+            const isNewAttack = Boolean(
+                incomingAttack &&
+                incomingAttack.id &&
+                incomingAttack.id !== lastAttackId
+            );
+
+            if (isNewAttack) {
+                const attackViews = resolveAttackViews(incomingAttack);
+                if (attackViews) {
+                    const result = maybeAnimateLastAttack(sceneRef, incomingAttack);
+                    if (result?.queued || result?.blocked) {
+                        pendingArenaState = arena;
+                        updateHud(arena);
+                        return;
+                    }
+
+                    const deferMs = Math.max(120, Number(result?.deferStateApplyMs) || 0);
+                    if (deferMs > 0) {
+                        pendingArenaState = arena;
+                        schedulePendingArenaApply(sceneRef, deferMs);
+                        updateHud(arena);
+                        return;
+                    }
+
+                    updateHud(arena);
+                    return;
+                }
+            }
+
+            applyArenaState(arena);
+            maybeAnimateLastAttack(sceneRef, arena.lastAttack);
+            updateHud(arena);
+        }
+
+        function applyArenaState(arena) {
             applyPlayerToView(championView, arena.champion);
             applyPlayerToView(challengerView, arena.challenger);
 
-            maybeAnimateLastAttack(sceneRef, arena.lastAttack);
-            updateHud(arena);
+            if (!arena.champion || !arena.challenger) {
+                introPairKey = "";
+                introInProgress = false;
+                queuedAttackDuringIntro = null;
+                bufferedArenaState = null;
+                return;
+            }
+
+            updateHomePositionsForForms();
+            maybeStartFightIntro(sceneRef);
+        }
+
+        function updateHomePositionsForForms() {
+            if (!championView || !challengerView) {
+                return;
+            }
+
+            const championIsTengu = championView.form === FORM_TENGU;
+            const challengerIsTengu = challengerView.form === FORM_TENGU;
+            const bothTengu = championIsTengu && challengerIsTengu;
+            const mixedForm = championIsTengu !== challengerIsTengu;
+
+            let championHomeX = 570;
+            let challengerHomeX = 710;
+
+            if (bothTengu) {
+                championHomeX = 548;
+                challengerHomeX = 732;
+            } else if (mixedForm) {
+                championHomeX = 560;
+                challengerHomeX = 720;
+            }
+
+            championView.homeX = championHomeX;
+            challengerView.homeX = challengerHomeX;
+
+            if (!introInProgress && !championView.isAttacking && !championView.isDeadAnimating) {
+                championView.container.x = championHomeX;
+            }
+
+            if (!introInProgress && !challengerView.isAttacking && !challengerView.isDeadAnimating) {
+                challengerView.container.x = challengerHomeX;
+            }
+        }
+
+        function maybeStartFightIntro(scene) {
+            if (!scene || !championView || !challengerView) {
+                return;
+            }
+
+            if (!championView.playerUsername || !challengerView.playerUsername) {
+                return;
+            }
+
+            if (deathApplyDelayTimer) {
+                return;
+            }
+
+            if (summonInProgress) {
+                return;
+            }
+
+            const pairKey = championView.playerUsername + "|" + challengerView.playerUsername;
+            if (pairKey === introPairKey || introInProgress) {
+                return;
+            }
+
+            introPairKey = pairKey;
+            introInProgress = true;
+
+            scene.tweens.killTweensOf(championView.container);
+            scene.tweens.killTweensOf(challengerView.container);
+
+            const bothTengu = championView.form === FORM_TENGU && challengerView.form === FORM_TENGU;
+            const introOffset = bothTengu ? 72 : 52;
+            championView.container.x = championView.homeX - introOffset;
+            challengerView.container.x = challengerView.homeX + introOffset;
+
+            championView.sprite.play(getWalkAnimKey(championView), true);
+            challengerView.sprite.play(getWalkAnimKey(challengerView), true);
+
+            spawnFightStartText(scene, FIGHT_READY_DELAY_MS);
+
+            let completedCount = 0;
+            const onIntroDone = () => {
+                completedCount += 1;
+                if (completedCount < 2) {
+                    return;
+                }
+
+                championView.sprite.play(getDefendAnimKey(championView), true);
+                challengerView.sprite.play(getDefendAnimKey(challengerView), true);
+
+                const waitAfterWalkMs = Math.max(0, FIGHT_READY_DELAY_MS - INTRO_WALK_MS);
+                scene.time.delayedCall(waitAfterWalkMs, () => {
+                    if (introPairKey !== pairKey) {
+                        return;
+                    }
+
+                    introInProgress = false;
+                    if (queuedAttackDuringIntro) {
+                        const queued = queuedAttackDuringIntro;
+                        queuedAttackDuringIntro = null;
+                        const queuedResult = maybeAnimateLastAttack(scene, queued);
+                        if (queuedResult?.blocked || queuedResult?.queued) {
+                            return;
+                        }
+
+                        if (pendingArenaState) {
+                            const queuedDeferMs = Math.max(120, Number(queuedResult?.deferStateApplyMs) || 0);
+                            if (queuedDeferMs > 0) {
+                                schedulePendingArenaApply(scene, queuedDeferMs);
+                            } else {
+                                applyPendingArenaState(scene);
+                            }
+                        }
+                    }
+                });
+            };
+
+            scene.tweens.add({
+                targets: championView.container,
+                x: championView.homeX,
+                duration: INTRO_WALK_MS,
+                ease: "Quad.easeOut",
+                onComplete: onIntroDone
+            });
+
+            scene.tweens.add({
+                targets: challengerView.container,
+                x: challengerView.homeX,
+                duration: INTRO_WALK_MS,
+                ease: "Quad.easeOut",
+                onComplete: onIntroDone
+            });
+        }
+
+        function spawnFightStartText(scene, holdMs) {
+            if (!scene) {
+                return;
+            }
+
+            battleFx.playFightStart();
+            const duration = Math.max(400, Number(holdMs) || FIGHT_READY_DELAY_MS);
+
+            const fightText = scene.add.text(640, 330, "FIGHT", {
+                fontFamily: "Segoe UI",
+                fontSize: "92px",
+                fontStyle: "900",
+                color: "#fef08a"
+            }).setOrigin(0.5).setDepth(80);
+
+            fightText.setStroke("#7f1d1d", 12);
+            fightText.setScale(1);
+            fightText.setAlpha(1);
+
+            scene.tweens.add({
+                targets: fightText,
+                scaleX: 1.22,
+                scaleY: 1.22,
+                alpha: 0,
+                y: 300,
+                duration,
+                ease: "Cubic.easeOut",
+                onComplete: () => {
+                    fightText.destroy();
+                }
+            });
+        }
+
+        function spawnLoseText(scene) {
+            if (!scene) {
+                return;
+            }
+
+            battleFx.playYouLose();
+            const duration = DEATH_TRANSITION_DELAY_MS;
+
+            const loseText = scene.add.text(640, 336, "Yo Lose", {
+                fontFamily: "Segoe UI",
+                fontSize: "86px",
+                fontStyle: "900",
+                color: "#fecaca"
+            }).setOrigin(0.5).setDepth(81);
+
+            loseText.setStroke("#7f1d1d", 11);
+
+            scene.tweens.add({
+                targets: loseText,
+                scaleX: 1.24,
+                scaleY: 1.24,
+                alpha: 0,
+                y: 302,
+                duration,
+                ease: "Cubic.easeOut",
+                onComplete: () => {
+                    loseText.destroy();
+                }
+            });
         }
 
         function applyPlayerToView(view, player) {
@@ -475,6 +1352,24 @@
                 view.container.setVisible(false);
                 view.isAttacking = false;
                 view.hasSword = false;
+                view.ssjActive = false;
+                view.ssjTier = 0;
+                view.ssjAuraMode = "base";
+                view.form = FORM_KNIGHT;
+                view.currentHp = 0;
+                view.currentMaxHp = 0;
+                view.isDeadAnimating = false;
+                if (view.crownDisplay) {
+                    view.crownDisplay.setVisible(false);
+                }
+                if (view.championText) {
+                    view.championText.setVisible(false);
+                }
+                if (view.streakText) {
+                    view.streakText.setText("");
+                    view.streakText.setVisible(false);
+                }
+                updateAuraForView(view);
                 return;
             }
 
@@ -482,25 +1377,458 @@
             if (previousUsername && previousUsername !== player.username) {
                 resetViewTransform(view);
                 view.isAttacking = false;
+                view.hasSword = false;
+                view.ssjActive = false;
+                view.ssjTier = 0;
+                view.ssjAuraMode = "base";
+                view.form = FORM_KNIGHT;
+                view.currentHp = 0;
+                view.currentMaxHp = 0;
+                view.isDeadAnimating = false;
+                if (view.crownDisplay) {
+                    view.crownDisplay.setVisible(false);
+                }
+                if (view.championText) {
+                    view.championText.setVisible(false);
+                }
+                if (view.streakText) {
+                    view.streakText.setText("");
+                    view.streakText.setVisible(false);
+                }
             }
 
+            const hadEvolutionBefore = view.hasSword;
             view.container.setVisible(true);
             view.playerUsername = player.username;
             view.hasSword = Boolean(player.hasSword);
+            const nextForm = getFormFromEvolution(view.hasSword);
+            if (view.form !== nextForm) {
+                view.form = nextForm;
+                if (!hadEvolutionBefore && nextForm === FORM_TENGU && sceneRef) {
+                    battleFx.playEvolution();
+                    playEvolutionOverlay(sceneRef, () => {
+                        if (
+                            view.playerUsername === player.username &&
+                            view.form === FORM_TENGU &&
+                            view.container.visible
+                        ) {
+                            spawnEvolutionPulse(sceneRef, view);
+                        }
+                    });
+                }
+            }
+
+            view.currentHp = Number(player.hp) || 0;
+            view.currentMaxHp = Number(player.maxHp) || 0;
+            view.isDeadAnimating = false;
 
             const hpRatio = clamp(player.maxHp > 0 ? player.hp / player.maxHp : 0, 0, 1);
             const hpBarColor = hpRatio > 0.6 ? 0x22c55e : hpRatio > 0.3 ? 0xf59e0b : 0xef4444;
             const hpBarWidth = Math.max(2, 216 * hpRatio);
+            const streakCount = Math.max(0, Number(player.winStreak) || 0);
+            const showStreak = streakCount >= 2;
+            const showChampionCrown = streakCount >= 10;
+            view.ssjTier = streakCount;
+            view.ssjActive = streakCount >= SSJ_AURA_WIN_STREAK && view.currentHp > 0;
+            updateAuraForView(view);
 
-            view.nameText.setText(player.hasSword ? player.username + " [SWORD]" : player.username);
+            view.nameText.setText(player.hasSword ? player.username + " [TENGU]" : player.username);
+            if (view.crownDisplay) {
+                view.crownDisplay.setVisible(showChampionCrown);
+            }
+            if (view.championText) {
+                view.championText.setText(showChampionCrown ? "CHAMPION" : "");
+                view.championText.setVisible(showChampionCrown);
+            }
+            if (view.streakText) {
+                view.streakText.setText(showStreak ? ("Win " + streakCount + "x") : "");
+                view.streakText.setVisible(showStreak);
+            }
             view.hpFill.displayWidth = hpBarWidth;
             view.hpFill.setFillStyle(hpBarColor, 1);
             view.hpText.setText("HP " + player.hp + "/" + player.maxHp);
 
-            const defendAnim = getDefendAnimKey(view, view.hasSword);
-            if (!view.isAttacking && view.sprite.anims.currentAnim?.key !== defendAnim) {
+            const defendAnim = getDefendAnimKey(view);
+            if (!view.isAttacking && !view.isDeadAnimating && view.sprite.anims.currentAnim?.key !== defendAnim) {
                 view.sprite.play(defendAnim, true);
             }
+        }
+
+        function resolveAttackViews(lastAttack) {
+            if (!lastAttack) {
+                return null;
+            }
+
+            if (championView.playerUsername === lastAttack.attacker) {
+                return { attackerView: championView, targetView: challengerView };
+            }
+
+            if (challengerView.playerUsername === lastAttack.attacker) {
+                return { attackerView: challengerView, targetView: championView };
+            }
+
+            return null;
+        }
+
+        function resolveSummonViews(lastGift) {
+            if (!lastGift) {
+                return null;
+            }
+
+            if (
+                championView.playerUsername === lastGift.caster &&
+                challengerView.playerUsername === lastGift.target
+            ) {
+                return { casterView: championView, targetView: challengerView };
+            }
+
+            if (
+                challengerView.playerUsername === lastGift.caster &&
+                championView.playerUsername === lastGift.target
+            ) {
+                return { casterView: challengerView, targetView: championView };
+            }
+
+            return null;
+        }
+
+        function maybeAnimateLastGift(scene, lastGift) {
+            if (
+                !lastGift ||
+                !lastGift.id ||
+                lastGift.id === lastGiftId ||
+                lastGift.kind !== "summon"
+            ) {
+                return;
+            }
+
+            const summonViews = resolveSummonViews(lastGift);
+            if (!summonViews) {
+                lastGiftId = lastGift.id;
+                return;
+            }
+
+            lastGiftId = lastGift.id;
+            return playSummonAnimation(scene, summonViews.casterView, summonViews.targetView, {
+                summonId: String(lastGift.summon || ""),
+                damage: Math.max(0, Number(lastGift.damage) || 0),
+                died: Boolean(lastGift.died)
+            });
+        }
+
+        function playSummonAnimation(scene, casterView, targetView, summonInfo) {
+            if (!scene || !casterView || !targetView) {
+                return;
+            }
+
+            const summonDef = SUMMON_DEFS[summonInfo.summonId];
+            const summonKeys = SUMMON_TEXTURE_KEYS[summonInfo.summonId];
+            if (!summonDef || !summonKeys) {
+                summonInProgress = false;
+                return;
+            }
+
+            summonInProgress = true;
+            introInProgress = false;
+            queuedAttackDuringIntro = null;
+            casterView.isAttacking = false;
+            targetView.isAttacking = false;
+            casterView.isDeadAnimating = false;
+            targetView.isDeadAnimating = false;
+
+            scene.tweens.killTweensOf(casterView.container);
+            scene.tweens.killTweensOf(targetView.container);
+            casterView.container.x = casterView.homeX;
+            targetView.container.x = targetView.homeX;
+            casterView.sprite.play(getDefendAnimKey(casterView), true);
+            targetView.sprite.play(getDefendAnimKey(targetView), true);
+
+            const casterDirection = casterView.dashDirection;
+            const summonFaceRight = casterDirection > 0;
+            const summonScale = 2.3;
+            const summonStartX = summonFaceRight ? -120 : 1400;
+            const summonGroundY = casterView.container.y + 2;
+            const summonRunEndX = casterView.container.x + (casterDirection * 136);
+            const summonCastX = casterView.container.x + (casterDirection * 192);
+            const summonAnimRun = getSummonAnimKey(summonInfo.summonId, "run");
+            const summonAnimJump = getSummonAnimKey(summonInfo.summonId, "jump");
+            const summonAnimCast = getSummonAnimKey(summonInfo.summonId, "cast");
+            const summonRunSceneMs = 420;
+            const summonJumpAscendMs = 240;
+            const summonJumpDescendMs = 180;
+            const summonJumpSceneMs = summonJumpAscendMs + summonJumpDescendMs;
+            const summonCastSceneMs = Math.max(
+                120,
+                Number(getAnimationDurationMs(scene, summonAnimCast)) ||
+                Number(summonDef.castDurationMs) ||
+                900
+            );
+            const targetHurtAnim = getHurtAnimKey(targetView);
+            const targetDeadAnim = getDeadAnimKey(targetView);
+            const targetDefendAnim = getDefendAnimKey(targetView);
+            const targetName = targetView.playerUsername;
+            const hasSummonOverlay = hasSummonOverlayTexture(scene, summonInfo.summonId);
+            const summonOverlayMs = hasSummonOverlay ? getSummonOverlayDurationMs(summonInfo.summonId) : 0;
+            const targetBodyAnchor = getTargetBodyImpactPoint(targetView);
+            const fireConvergeInwardShift = targetView.dashDirection * Math.round(targetView.sprite.displayWidth * 0.12);
+            const fireConvergeX = targetBodyAnchor.x + fireConvergeInwardShift;
+            const fireCastDistance = Math.max(112, Math.round(targetView.sprite.displayWidth * 0.39));
+            const fireRunDistance = fireCastDistance + 68;
+
+            const isDualFireWizard = summonInfo.summonId === "fire_wizard";
+            const summonEntrants = isDualFireWizard
+                ? [
+                    {
+                        startX: -120,
+                        faceRight: true,
+                        runEndX: fireConvergeX - fireRunDistance,
+                        castX: fireConvergeX - fireCastDistance,
+                        retreatDirection: -1,
+                        impactDirection: 1
+                    },
+                    {
+                        startX: 1400,
+                        faceRight: false,
+                        runEndX: fireConvergeX + fireRunDistance,
+                        castX: fireConvergeX + fireCastDistance,
+                        retreatDirection: 1,
+                        impactDirection: -1
+                    }
+                ]
+                : [
+                    {
+                        startX: summonStartX,
+                        faceRight: summonFaceRight,
+                        runEndX: summonRunEndX,
+                        castX: summonCastX,
+                        retreatDirection: casterDirection,
+                        impactDirection: casterDirection
+                    }
+                ];
+
+            const summonSprites = [];
+            let castReadyCount = 0;
+            let impactStarted = false;
+            let cleanupDone = false;
+            let summonOverlay = null;
+
+            const cleanupSummon = () => {
+                if (cleanupDone) {
+                    return;
+                }
+                cleanupDone = true;
+                summonInProgress = false;
+                if (summonOverlay && summonOverlay.active) {
+                    summonOverlay.destroy();
+                }
+                for (const sprite of summonSprites) {
+                    if (sprite && sprite.active) {
+                        sprite.destroy();
+                    }
+                }
+            };
+
+            const triggerExplosionAt = (x, y, direction, sizeScale) => {
+                spawnSummonExplosionBurst(
+                    scene,
+                    summonInfo.summonId,
+                    x,
+                    y,
+                    Math.max(80, Math.round(summonDef.explosionSize * (sizeScale || 1))),
+                    direction,
+                    (burstIndex) => {
+                        const baseShake = summonInfo.summonId === "fire_wizard" ? 0.014 : 0.012;
+                        battleFx.playSummonExplosion(summonInfo.summonId);
+                        scene.cameras.main.shake(110 + (burstIndex * 40), baseShake + (burstIndex * 0.002));
+
+                        targetView.sprite.setTintFill(0xfca5a5);
+                        scene.time.delayedCall(90, () => {
+                            if (targetView.playerUsername === targetName) {
+                                targetView.sprite.clearTint();
+                            }
+                        });
+                    }
+                );
+            };
+
+            const applyHitVisuals = () => {
+                if (summonInfo.died) {
+                    targetView.isDeadAnimating = true;
+                    targetView.sprite.play(targetDeadAnim, true);
+                    updateAuraForView(targetView);
+                    spawnLoseText(scene);
+                } else {
+                    targetView.sprite.play(targetHurtAnim, true);
+                    scene.time.delayedCall(360, () => {
+                        if (targetView.playerUsername === targetName && !targetView.isDeadAnimating) {
+                            targetView.sprite.play(targetDefendAnim, true);
+                        }
+                    });
+                }
+
+                if (summonInfo.damage > 0) {
+                    spawnDamageText(scene, targetView, summonInfo.damage, 0);
+                }
+            };
+
+            const fadeOutSummoners = () => {
+                let activeCount = 0;
+                for (const [index, sprite] of summonSprites.entries()) {
+                    if (!sprite || !sprite.active) {
+                        continue;
+                    }
+
+                    activeCount += 1;
+                    const entrant = summonEntrants[index];
+                    scene.tweens.add({
+                        targets: sprite,
+                        x: sprite.x + (entrant.retreatDirection * 120),
+                        alpha: 0,
+                        duration: 280,
+                        ease: "Cubic.easeIn",
+                        onComplete: () => {
+                            activeCount -= 1;
+                            if (activeCount <= 0) {
+                                cleanupSummon();
+                            }
+                        }
+                    });
+                }
+
+                if (activeCount === 0) {
+                    cleanupSummon();
+                }
+            };
+
+            const startImpactPhase = () => {
+                if (impactStarted) {
+                    return;
+                }
+                impactStarted = true;
+
+                scene.time.delayedCall(summonCastSceneMs, () => {
+                    if (targetView.playerUsername !== targetName) {
+                        cleanupSummon();
+                        return;
+                    }
+
+                    const bodyImpact = getTargetBodyImpactPoint(targetView);
+                    if (isDualFireWizard) {
+                        const fireImpactX = fireConvergeX;
+                        triggerExplosionAt(fireImpactX, bodyImpact.y, 1, 1.04);
+                        scene.time.delayedCall(120, () => {
+                            if (targetView.playerUsername !== targetName) {
+                                return;
+                            }
+                            triggerExplosionAt(fireImpactX, bodyImpact.y - 4, -1, 1.04);
+                        });
+                    } else {
+                        triggerExplosionAt(bodyImpact.x, bodyImpact.y, casterDirection, 1);
+                    }
+
+                    applyHitVisuals();
+                    fadeOutSummoners();
+                });
+            };
+
+            const startSummonEntrants = () => {
+                summonEntrants.forEach((entrant, entrantIndex) => {
+                    const summonSprite = scene.add
+                        .sprite(entrant.startX, summonGroundY, summonKeys.run)
+                        .setOrigin(0.5, 1)
+                        .setScale(summonScale)
+                        .setDepth(56);
+                    setSpriteFacing(summonSprite, entrant.faceRight);
+                    summonSprites.push(summonSprite);
+
+                    battleFx.playSummonEnter(summonInfo.summonId);
+                    if (entrantIndex === 0) {
+                        battleFx.playSummonRun(summonInfo.summonId, summonRunSceneMs);
+                    }
+                    summonSprite.play(summonAnimRun, true);
+
+                    scene.tweens.add({
+                        targets: summonSprite,
+                        x: entrant.runEndX,
+                        duration: summonRunSceneMs,
+                        ease: "Quad.easeOut",
+                        onComplete: () => {
+                            if (!summonSprite.active) {
+                                cleanupSummon();
+                                return;
+                            }
+
+                            summonSprite.play(summonAnimJump, true);
+                            if (entrantIndex === 0) {
+                                battleFx.playSummonJump(summonInfo.summonId, summonJumpSceneMs);
+                            }
+                            scene.tweens.add({
+                                targets: summonSprite,
+                                x: entrant.castX,
+                                y: summonGroundY - 126,
+                                duration: summonJumpAscendMs,
+                                ease: "Sine.easeOut",
+                                onComplete: () => {
+                                    scene.tweens.add({
+                                        targets: summonSprite,
+                                        y: summonGroundY,
+                                        duration: summonJumpDescendMs,
+                                        ease: "Sine.easeIn",
+                                        onComplete: () => {
+                                            if (!summonSprite.active) {
+                                                cleanupSummon();
+                                                return;
+                                            }
+
+                                            summonSprite.play(summonAnimCast, true);
+                                            if (castReadyCount === 0) {
+                                                battleFx.playSummonCast(summonInfo.summonId, summonCastSceneMs);
+                                            }
+                                            castReadyCount += 1;
+                                            if (castReadyCount >= summonEntrants.length) {
+                                                startImpactPhase();
+                                            }
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    });
+                });
+            };
+
+            summonOverlay = playSummonOverlay(scene, summonInfo.summonId, () => {
+                if (cleanupDone || targetView.playerUsername !== targetName) {
+                    cleanupSummon();
+                    return;
+                }
+                summonOverlay = null;
+                startSummonEntrants();
+            });
+
+            const summonTravelMs = summonRunSceneMs + summonJumpSceneMs;
+            const summonExplosionStaggerMs = isDualFireWizard ? 120 : 0;
+            const summonFadeOutMs = 280;
+            const summonDeadAnimMs = getAnimationDurationMs(scene, targetDeadAnim);
+            const summonBaseDelayMs =
+                summonOverlayMs +
+                summonTravelMs +
+                summonCastSceneMs +
+                summonExplosionStaggerMs +
+                summonFadeOutMs +
+                260;
+            const summonDeadDurationMs =
+                summonOverlayMs +
+                summonTravelMs +
+                summonCastSceneMs +
+                summonExplosionStaggerMs +
+                summonDeadAnimMs +
+                420;
+            return {
+                deferStateApplyMs: summonInfo.died
+                    ? Math.max(DEATH_TRANSITION_DELAY_MS, summonBaseDelayMs, summonDeadDurationMs)
+                    : summonBaseDelayMs
+            };
         }
 
         function maybeAnimateLastAttack(scene, lastAttack) {
@@ -508,26 +1836,31 @@
                 return;
             }
 
-            lastAttackId = lastAttack.id;
-
-            let attackerView = null;
-            let targetView = null;
-
-            if (championView.playerUsername === lastAttack.attacker) {
-                attackerView = championView;
-                targetView = challengerView;
-            } else if (challengerView.playerUsername === lastAttack.attacker) {
-                attackerView = challengerView;
-                targetView = championView;
+            if (summonInProgress) {
+                return { blocked: true };
             }
+
+            if (introInProgress) {
+                queuedAttackDuringIntro = lastAttack;
+                return { queued: true };
+            }
+
+            const attackViews = resolveAttackViews(lastAttack);
+            const attackerView = attackViews?.attackerView || null;
+            const targetView = attackViews?.targetView || null;
 
             if (!attackerView || !targetView) {
                 return;
             }
 
-            playAttackAnimation(scene, attackerView, targetView, {
+            lastAttackId = lastAttack.id;
+            return playAttackAnimation(scene, attackerView, targetView, {
                 useSword: Boolean(lastAttack.sword),
-                damage: Number(lastAttack.totalDamage) || 0
+                damage: Number(lastAttack.totalDamage) || 0,
+                hits: Number(lastAttack.hits) || 0,
+                targetHpBefore: Number(lastAttack.targetHpBefore),
+                targetHpAfter: Number(lastAttack.targetHpAfter),
+                died: Boolean(lastAttack.died)
             });
         }
 
@@ -538,88 +1871,1441 @@
 
             scene.tweens.killTweensOf(attackerView.container);
             scene.tweens.killTweensOf(targetView.container);
+            attackerView.container.x = attackerView.homeX;
+            targetView.container.x = targetView.homeX;
 
             attackerView.isAttacking = true;
+            attackerView.isDeadAnimating = false;
 
-            const attackAnim = getAttackAnimKey(attackerView, attackInfo.useSword);
-            const attackerDefendAnim = getDefendAnimKey(attackerView, attackerView.hasSword);
-            const targetDefendAnim = getDefendAnimKey(targetView, targetView.hasSword);
+            const attackAnimKeys = getAttackAnimKeys(attackerView, attackInfo.useSword, attackInfo.hits);
+            const attackerDefendAnim = getDefendAnimKey(attackerView);
+            const targetDefendAnim = getDefendAnimKey(targetView);
+            const targetHurtAnim = getHurtAnimKey(targetView);
+            const targetDeadAnim = getDeadAnimKey(targetView);
+            const attackerName = attackerView.playerUsername;
+            const targetName = targetView.playerUsername;
             const totalDamage = Math.max(0, attackInfo.damage || 0);
-            const attackerStartX = attackerView.container.x;
-            const targetStartX = targetView.container.x;
+            const attackerStartX = attackerView.homeX;
+            const targetStartX = targetView.homeX;
             const distance = Math.abs(targetStartX - attackerStartX);
-            const minGap = Math.max(
-                190,
-                ((attackerView.sprite.displayWidth + targetView.sprite.displayWidth) * 0.5) + 44
+            const bothTengu = attackerView.form === FORM_TENGU && targetView.form === FORM_TENGU;
+            const bothKnight = attackerView.form === FORM_KNIGHT && targetView.form === FORM_KNIGHT;
+            const isKnightAttacker = attackerView.form === FORM_KNIGHT;
+            const isTenguAttacker = attackerView.form === FORM_TENGU;
+            const desiredGap = Math.max(
+                bothTengu ? 196 : (bothKnight ? 58 : 92),
+                ((attackerView.sprite.displayWidth + targetView.sprite.displayWidth) * (bothTengu ? 0.58 : (bothKnight ? 0.15 : 0.24)))
             );
-            const maxDashAllowed = Math.max(0, distance - minGap);
-            const baseDash = attackInfo.useSword ? 48 : 40;
-            const dashDistance = Math.min(baseDash, maxDashAllowed);
-            const knockbackDistance = Math.min(14, Math.max(4, (distance - minGap) * 0.16));
+            const approachTotal = Math.max(0, distance - desiredGap);
+            let attackerAdvance = Math.min(bothTengu ? 90 : (bothKnight ? 138 : 122), approachTotal * (bothTengu ? 0.62 : (bothKnight ? 0.74 : 0.68)));
+            let targetAdvance = Math.min(bothTengu ? 64 : (bothKnight ? 74 : 84), Math.max(0, approachTotal - attackerAdvance));
+            if (approachTotal > 0 && attackerAdvance < 30) {
+                attackerAdvance = Math.min(30, approachTotal);
+                targetAdvance = Math.max(0, approachTotal - attackerAdvance);
+            }
+            const attackerCombatX = attackerStartX + attackerAdvance * attackerView.dashDirection;
+            const targetCombatX = targetStartX - targetAdvance * attackerView.dashDirection;
+            const knockbackBase = Math.min(26, Math.max(10, (distance - desiredGap) * 0.24));
+            const strikeAnimKeys = attackAnimKeys.filter(
+                (key) => key.endsWith("-attack-1") || key.endsWith("-attack-2")
+            );
+            const splitDamages = splitDamageAcrossHits(totalDamage, Math.max(1, strikeAnimKeys.length));
+            const attackWillKill = Boolean(attackInfo.died || ((Number(attackInfo.targetHpAfter) || 0) <= 0));
+            let nextImpactIndex = 0;
+            let hasReturnedHome = false;
+            let loseTextShown = false;
+            const attackAnimDurationMs = getAnimationSequenceDurationMs(scene, attackAnimKeys);
+            const deadAnimDurationMs = getAnimationDurationMs(scene, targetDeadAnim);
+
+            const returnToHome = () => {
+                if (hasReturnedHome) {
+                    return;
+                }
+                hasReturnedHome = true;
+
+                scene.tweens.add({
+                    targets: attackerView.container,
+                    x: attackerStartX,
+                    duration: 180,
+                    ease: "Cubic.easeIn",
+                    onComplete: () => {
+                        attackerView.container.setDepth(attackerView.baseDepth || 10);
+                    }
+                });
+
+                scene.tweens.add({
+                    targets: targetView.container,
+                    x: targetStartX,
+                    duration: 180,
+                    ease: "Cubic.easeInOut"
+                });
+            };
+
+            const returnAttackerHome = () => {
+                if (hasReturnedHome) {
+                    return;
+                }
+                hasReturnedHome = true;
+
+                scene.tweens.add({
+                    targets: attackerView.container,
+                    x: attackerStartX,
+                    duration: 180,
+                    ease: "Cubic.easeIn",
+                    onComplete: () => {
+                        attackerView.container.setDepth(attackerView.baseDepth || 10);
+                    }
+                });
+            };
+
+            const applyImpact = (damage, impactIndex, isFinalHit) => {
+                if (attackerView.playerUsername !== attackerName || targetView.playerUsername !== targetName) {
+                    returnToHome();
+                    return;
+                }
+
+                const targetShouldDie = attackWillKill && isFinalHit;
+                const knockbackDistance = knockbackBase * (impactIndex === 0 ? 0.72 : 1);
+
+                scene.tweens.add({
+                    targets: targetView.container,
+                    x: targetCombatX + knockbackDistance * attackerView.dashDirection,
+                    duration: 95,
+                    yoyo: true,
+                    ease: "Quad.easeOut"
+                });
+
+                targetView.sprite.setTintFill(0xfca5a5);
+                scene.time.delayedCall(95, () => {
+                    targetView.sprite.clearTint();
+                });
+
+                battleFx.playImpact(attackInfo.useSword, impactIndex);
+                spawnImpactBurst(scene, targetView, attackerView.dashDirection, attackInfo.useSword, impactIndex);
+
+                if (targetShouldDie) {
+                    targetView.isDeadAnimating = true;
+                    targetView.sprite.play(targetDeadAnim, true);
+                    updateAuraForView(targetView);
+                    if (!loseTextShown) {
+                        loseTextShown = true;
+                        spawnLoseText(scene);
+                    }
+                } else {
+                    targetView.sprite.play(targetHurtAnim, true);
+                }
+                if (damage > 0) {
+                    spawnDamageText(scene, targetView, damage, impactIndex);
+                }
+
+                scene.cameras.main.shake(72 + (impactIndex * 34), attackInfo.useSword ? 0.010 : 0.008);
+
+                if (isFinalHit) {
+                    scene.time.delayedCall(targetShouldDie ? 260 : 150, () => {
+                        if (targetView.playerUsername === targetName && !targetView.isAttacking) {
+                            if (!targetShouldDie) {
+                                targetView.sprite.play(targetDefendAnim, true);
+                            }
+                        }
+                    });
+                    if (targetShouldDie) {
+                        returnAttackerHome();
+                    } else {
+                        returnToHome();
+                    }
+                }
+            };
 
             scene.tweens.add({
                 targets: attackerView.container,
-                x: attackerStartX + dashDistance * attackerView.dashDirection,
-                duration: 140,
+                x: attackerCombatX,
+                duration: 190,
                 ease: "Cubic.easeOut",
                 onStart: () => {
                     attackerView.container.setDepth((targetView.baseDepth || 10) + 1);
-                    attackerView.sprite.play(attackAnim, true);
-                },
+                    playAnimationSequence(
+                        attackerView.sprite,
+                        attackAnimKeys,
+                        () => {
+                            attackerView.isAttacking = false;
+                            if (attackerView.playerUsername === attackerName) {
+                                attackerView.sprite.play(attackerDefendAnim, true);
+                            }
+                        },
+                        (animIndex, animKey) => {
+                            if (attackerView.playerUsername !== attackerName) {
+                                return;
+                            }
+
+                            const impactIndex = nextImpactIndex;
+                            const splitIndex = Math.min(impactIndex, splitDamages.length - 1);
+                            const hitDamage = splitDamages[splitIndex] || 0;
+                            const isFinalHit = impactIndex >= (splitDamages.length - 1);
+                            nextImpactIndex += 1;
+
+                            spawnSlashTrail(scene, attackerView, attackInfo.useSword, impactIndex);
+                            if (isKnightAttacker) {
+                                battleFx.playKnightSlash(impactIndex);
+                            } else if (isTenguAttacker) {
+                                battleFx.playTenguSlash(impactIndex);
+                            } else {
+                                battleFx.playSwing(attackInfo.useSword, false, impactIndex);
+                            }
+                            scene.time.delayedCall(90 + (impactIndex * 12), () => {
+                                applyImpact(hitDamage, impactIndex, isFinalHit);
+                            });
+                        }
+                    );
+                }
+            });
+
+            scene.tweens.add({
+                targets: targetView.container,
+                x: targetCombatX,
+                duration: 190,
+                ease: "Cubic.easeOut"
+            });
+
+            scene.time.delayedCall(900, () => {
+                if (!hasReturnedHome) {
+                    if (targetView.isDeadAnimating) {
+                        returnAttackerHome();
+                    } else {
+                        returnToHome();
+                    }
+                }
+            });
+
+            const willKillTarget = attackWillKill;
+            const impactLeadDelayMs = 190 + (90 + ((Math.max(1, strikeAnimKeys.length) - 1) * 12));
+            const regularSequenceMs = impactLeadDelayMs + attackAnimDurationMs + 180;
+            const lethalSequenceMs = impactLeadDelayMs + attackAnimDurationMs + deadAnimDurationMs + 220;
+            return {
+                deferStateApplyMs: willKillTarget
+                    ? Math.max(DEATH_TRANSITION_DELAY_MS, lethalSequenceMs)
+                    : Math.max(700, regularSequenceMs)
+            };
+        }
+
+        function getAttackAnimKeys(view, useSword, hitCount) {
+            const form = getFormFromEvolution(useSword);
+            const keys = [];
+
+            keys.push(getAnimKeyForForm(view.animPrefix, form, "attack-1"));
+            if ((Number(hitCount) || 2) > 1) {
+                keys.push(getAnimKeyForForm(view.animPrefix, form, "attack-2"));
+            }
+            return keys;
+        }
+
+        function getDefendAnimKey(view) {
+            return getAnimKeyForForm(view.animPrefix, view.form, "defend");
+        }
+
+        function getWalkAnimKey(view) {
+            return getAnimKeyForForm(view.animPrefix, view.form, "walk");
+        }
+
+        function getHurtAnimKey(view) {
+            return getAnimKeyForForm(view.animPrefix, view.form, "hurt");
+        }
+
+        function getDeadAnimKey(view) {
+            return getAnimKeyForForm(view.animPrefix, view.form, "dead");
+        }
+
+        function getDefendAnimKeyForForm(animPrefix, form) {
+            return getAnimKeyForForm(animPrefix, form, "defend");
+        }
+
+        function getAnimKeyForForm(animPrefix, form, action) {
+            return animPrefix + "-" + form + "-" + action;
+        }
+
+        function getFormFromEvolution(isEvolved) {
+            return isEvolved ? FORM_TENGU : FORM_KNIGHT;
+        }
+
+        function getAnimationDurationMs(scene, animKey) {
+            if (!scene || !animKey) {
+                return 0;
+            }
+
+            const animation = scene.anims.get(animKey);
+            if (!animation) {
+                return 0;
+            }
+
+            const duration = Number(animation.duration) || 0;
+            if (duration > 0) {
+                return Math.round(duration);
+            }
+
+            const frameCount = Array.isArray(animation.frames)
+                ? animation.frames.length
+                : (Number(animation.getTotalFrames?.()) || 0);
+            const frameRate = Number(animation.frameRate) || 0;
+            if (frameCount > 0 && frameRate > 0) {
+                return Math.round((frameCount / frameRate) * 1000);
+            }
+
+            const msPerFrame = Number(animation.msPerFrame) || 0;
+            if (frameCount > 0 && msPerFrame > 0) {
+                return Math.round(frameCount * msPerFrame);
+            }
+
+            return 0;
+        }
+
+        function getAnimationSequenceDurationMs(scene, animationKeys) {
+            if (!Array.isArray(animationKeys) || animationKeys.length === 0) {
+                return 0;
+            }
+
+            let total = 0;
+            for (const animKey of animationKeys) {
+                const duration = getAnimationDurationMs(scene, animKey);
+                total += duration > 0 ? duration : 220;
+            }
+            return total;
+        }
+
+        function getSummonAnimKey(summonId, action) {
+            return "summon-" + summonId + "-" + action;
+        }
+
+        function getSummonExplosionAnimKey(summonId) {
+            return "summon-" + summonId + "-explosion";
+        }
+
+        function getSummonExplosionFrameKey(summonId, frameNumber) {
+            return "summon-" + summonId + "-explosion-" + frameNumber;
+        }
+
+        function getSummonOverlayTextureKey(summonId) {
+            const overlayDef = SUMMON_OVERLAY_TEXTURES[summonId];
+            return overlayDef?.key || "";
+        }
+
+        function hasSummonOverlayTexture(scene, summonId) {
+            const textureKey = getSummonOverlayTextureKey(summonId);
+            return Boolean(scene && textureKey && scene.textures.exists(textureKey));
+        }
+
+        function getSummonOverlayDurationMs(summonId) {
+            const durationMs = Number(battleFx.getSummonOverlayDurationMs(summonId)) || 0;
+            return durationMs > 0 ? durationMs : SUMMON_OVERLAY_TOTAL_MS;
+        }
+
+        function playEvolutionOverlay(scene, onComplete) {
+            return playSummonOverlay(scene, "tengu_evolve", onComplete);
+        }
+
+        function playSummonOverlay(scene, summonId, onComplete) {
+            if (!scene) {
+                if (typeof onComplete === "function") {
+                    onComplete();
+                }
+                return null;
+            }
+
+            const textureKey = getSummonOverlayTextureKey(summonId);
+            if (!textureKey || !scene.textures.exists(textureKey)) {
+                if (typeof onComplete === "function") {
+                    onComplete();
+                }
+                return null;
+            }
+
+            const overlayContainer = scene.add.container(640, 360).setDepth(74);
+            const shade = scene.add.rectangle(0, 0, 1280, 720, 0x020617, 0.36);
+            const overlayImage = scene.add.image(0, 0, textureKey);
+            const texture = scene.textures.get(textureKey);
+            const source = texture && typeof texture.getSourceImage === "function"
+                ? texture.getSourceImage()
+                : null;
+
+            if (source && source.width > 0 && source.height > 0) {
+                const fitScale = Math.min(1220 / source.width, 700 / source.height);
+                overlayImage.setScale(fitScale);
+            } else {
+                overlayImage.setDisplaySize(1120, 620);
+            }
+
+            overlayContainer.add([shade, overlayImage]);
+            overlayContainer.setAlpha(0);
+
+            const totalDurationMs = getSummonOverlayDurationMs(summonId);
+            const fadeDurationMs = Math.min(
+                SUMMON_OVERLAY_FADE_MS,
+                Math.max(80, Math.floor(totalDurationMs / 2))
+            );
+            const holdDurationMs = Math.max(0, totalDurationMs - (fadeDurationMs * 2));
+
+            battleFx.playSummonOverlayAudio(summonId, totalDurationMs);
+
+            scene.tweens.add({
+                targets: overlayContainer,
+                alpha: 1,
+                duration: fadeDurationMs,
+                ease: "Quad.easeOut",
                 onComplete: () => {
-                    scene.tweens.add({
-                        targets: targetView.container,
-                        x: targetStartX + knockbackDistance * attackerView.dashDirection,
-                        duration: 105,
-                        yoyo: true,
-                        ease: "Quad.easeOut"
+                    scene.time.delayedCall(holdDurationMs, () => {
+                        if (!overlayContainer.active) {
+                            return;
+                        }
+
+                        scene.tweens.add({
+                            targets: overlayContainer,
+                            alpha: 0,
+                            duration: fadeDurationMs,
+                            ease: "Quad.easeIn",
+                            onComplete: () => {
+                                if (overlayContainer.active) {
+                                    overlayContainer.destroy(true);
+                                }
+                                if (typeof onComplete === "function") {
+                                    onComplete();
+                                }
+                            }
+                        });
                     });
+                }
+            });
 
-                    targetView.sprite.setTintFill(0xfca5a5);
-                    scene.time.delayedCall(110, () => {
-                        targetView.sprite.clearTint();
+            return overlayContainer;
+        }
+
+        function spawnSummonExplosion(scene, summonId, x, y, size) {
+            if (!scene) {
+                return;
+            }
+
+            const firstFrameKey = getSummonExplosionFrameKey(summonId, 1);
+            const explosionAnimKey = getSummonExplosionAnimKey(summonId);
+            if (!scene.anims.exists(explosionAnimKey) || !scene.textures.exists(firstFrameKey)) {
+                return;
+            }
+
+            const explosion = scene.add.sprite(x, y, firstFrameKey).setDepth(60);
+            explosion.setBlendMode(Phaser.BlendModes.ADD);
+            if (size > 0) {
+                explosion.setDisplaySize(size, size);
+            }
+
+            explosion.once(Phaser.Animations.Events.ANIMATION_COMPLETE_KEY + explosionAnimKey, () => {
+                explosion.destroy();
+            });
+            explosion.play(explosionAnimKey, true);
+        }
+
+        function getTargetBodyImpactPoint(targetView) {
+            if (!targetView || !targetView.container || !targetView.sprite) {
+                return { x: 640, y: 360 };
+            }
+
+            const visualCenterShift = targetView.sprite.flipX
+                ? Math.round(targetView.sprite.displayWidth * 0.055)
+                : -Math.round(targetView.sprite.displayWidth * 0.055);
+            const bodyX = targetView.container.x + visualCenterShift;
+            const bodyY = targetView.container.y - Math.round(targetView.sprite.displayHeight * 0.53);
+            return { x: bodyX, y: bodyY };
+        }
+
+        function spawnSummonExplosionBurst(scene, summonId, x, y, size, direction, onBurst) {
+            if (!scene) {
+                return;
+            }
+
+            const safeDirection = direction >= 0 ? 1 : -1;
+
+            const burstOffsets = [
+                { x: 0, y: 0, scale: 1.06 },
+                { x: -20 * safeDirection, y: -10, scale: 0.96 },
+                { x: 22 * safeDirection, y: 8, scale: 1.14 }
+            ];
+
+            for (let burstIndex = 0; burstIndex < burstOffsets.length; burstIndex += 1) {
+                const offset = burstOffsets[burstIndex];
+                scene.time.delayedCall(burstIndex * 95, () => {
+                    spawnSummonExplosion(
+                        scene,
+                        summonId,
+                        x + offset.x,
+                        y + offset.y,
+                        Math.max(40, Math.round(size * offset.scale))
+                    );
+
+                    if (typeof onBurst === "function") {
+                        onBurst(burstIndex);
+                    }
+                });
+            }
+        }
+
+        function splitDamageAcrossHits(totalDamage, hitCount) {
+            const safeHitCount = Math.max(1, Math.trunc(hitCount) || 1);
+            const safeDamage = Math.max(0, Math.trunc(totalDamage) || 0);
+            const perHit = Math.floor(safeDamage / safeHitCount);
+            const remainder = safeDamage % safeHitCount;
+            const result = [];
+
+            for (let i = 0; i < safeHitCount; i += 1) {
+                result.push(perHit + (i < remainder ? 1 : 0));
+            }
+            return result;
+        }
+
+        function playAnimationSequence(sprite, animationKeys, onComplete, onEachStart) {
+            if (!sprite || !Array.isArray(animationKeys) || animationKeys.length === 0) {
+                if (typeof onComplete === "function") {
+                    onComplete();
+                }
+                return;
+            }
+
+            const playAtIndex = (index) => {
+                const animKey = animationKeys[index];
+                const completeEvent = Phaser.Animations.Events.ANIMATION_COMPLETE_KEY + animKey;
+
+                sprite.once(completeEvent, () => {
+                    if (index + 1 < animationKeys.length) {
+                        playAtIndex(index + 1);
+                        return;
+                    }
+
+                    if (typeof onComplete === "function") {
+                        onComplete();
+                    }
+                });
+
+                if (typeof onEachStart === "function") {
+                    onEachStart(index, animKey);
+                }
+                sprite.play(animKey, true);
+            };
+
+            playAtIndex(0);
+        }
+
+        function createBattleFx() {
+            let audioContext = null;
+            let masterGain = null;
+            let audioUnavailable = false;
+            const summonOverlayPlayers = Object.fromEntries(
+                Object.entries(SUMMON_OVERLAY_SOUND_PATHS).map(([summonId, path]) => {
+                    const audio = new Audio(path);
+                    audio.preload = "auto";
+                    audio.volume = 0.8;
+                    return [summonId, audio];
+                })
+            );
+            const ssjAuraIntroTemplate = new Audio(SSJ_AURA_SOUND_PATH);
+            ssjAuraIntroTemplate.preload = "auto";
+            ssjAuraIntroTemplate.volume = 0.68;
+            const ssjAuraStandbyTemplate = new Audio(SSJ_AURA_STANDBY_SOUND_PATH);
+            ssjAuraStandbyTemplate.preload = "auto";
+            ssjAuraStandbyTemplate.volume = 0.42;
+            const fightStartPlayer = new Audio(FIGHT_START_SOUND_PATH);
+            fightStartPlayer.preload = "auto";
+            fightStartPlayer.volume = 0.72;
+            const youLosePlayer = new Audio(YOU_LOSE_SOUND_PATH);
+            youLosePlayer.preload = "auto";
+            youLosePlayer.volume = 0.78;
+            const fireAttackPlayer = new Audio(FIRE_ATTACK_SOUND_PATH);
+            fireAttackPlayer.preload = "auto";
+            fireAttackPlayer.volume = 0.78;
+            const fireBoomPlayer = new Audio(FIRE_BOOM_SOUND_PATH);
+            fireBoomPlayer.preload = "auto";
+            fireBoomPlayer.volume = 0.84;
+            const lightningAttackPlayer = new Audio(LIGHTNING_ATTACK_SOUND_PATH);
+            lightningAttackPlayer.preload = "auto";
+            lightningAttackPlayer.volume = 0.74;
+            const lightningBoomPlayer = new Audio(LIGHTNING_BOOM_SOUND_PATH);
+            lightningBoomPlayer.preload = "auto";
+            lightningBoomPlayer.volume = 0.82;
+            const summonRunPlayer = new Audio(SUMMON_RUN_SOUND_PATH);
+            summonRunPlayer.preload = "auto";
+            summonRunPlayer.volume = 0.7;
+            const summonJumpPlayer = new Audio(SUMMON_JUMP_SOUND_PATH);
+            summonJumpPlayer.preload = "auto";
+            summonJumpPlayer.volume = 0.74;
+            const overlayBacksoundPlayer = new Audio(OVERLAY_BACKSOUND_SOUND_PATH);
+            overlayBacksoundPlayer.preload = "auto";
+            overlayBacksoundPlayer.volume = 0.54;
+            const knightSlashPlayers = KNIGHT_SLASH_SOUND_PATHS.map((path) => {
+                const audio = new Audio(path);
+                audio.preload = "auto";
+                audio.volume = 0.7;
+                return audio;
+            });
+            const tenguSlashPlayers = TENGU_SLASH_SOUND_PATHS.map((path) => {
+                const audio = new Audio(path);
+                audio.preload = "auto";
+                audio.volume = 0.72;
+                return audio;
+            });
+            const htmlAudioPlayers = [
+                ssjAuraIntroTemplate,
+                ssjAuraStandbyTemplate,
+                fightStartPlayer,
+                youLosePlayer,
+                fireAttackPlayer,
+                fireBoomPlayer,
+                lightningAttackPlayer,
+                lightningBoomPlayer,
+                summonRunPlayer,
+                summonJumpPlayer,
+                overlayBacksoundPlayer,
+                ...knightSlashPlayers,
+                ...tenguSlashPlayers,
+                ...Object.values(summonOverlayPlayers)
+            ];
+            const ssjAuraStates = new Map();
+
+            // Prime browser cache/decoder early to reduce first-play lag.
+            for (const player of htmlAudioPlayers) {
+                if (player && typeof player.load === "function") {
+                    try {
+                        player.load();
+                    } catch (_error) {
+                        // Ignore preload failures; fallback stays active.
+                    }
+                }
+            }
+
+            const clampVolume = (value) => Math.min(1, Math.max(0.0001, value));
+
+            const getHtmlClipDurationMs = (source) => {
+                if (!source) {
+                    return 0;
+                }
+
+                const durationSeconds = Number(source.duration);
+                if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+                    return 0;
+                }
+
+                return Math.round(durationSeconds * 1000);
+            };
+
+            const ensureAudio = () => {
+                if (audioUnavailable) {
+                    return null;
+                }
+
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (!AudioContextClass) {
+                    audioUnavailable = true;
+                    return null;
+                }
+
+                if (!audioContext) {
+                    audioContext = new AudioContextClass();
+                    masterGain = audioContext.createGain();
+                    masterGain.gain.value = 0.09;
+                    masterGain.connect(audioContext.destination);
+                }
+
+                return audioContext;
+            };
+
+            const unlockAudio = () => {
+                const ctx = ensureAudio();
+                if (!ctx) {
+                    return;
+                }
+
+                if (ctx.state === "suspended") {
+                    ctx.resume().catch(() => {});
+                }
+
+                for (const player of htmlAudioPlayers) {
+                    if (player && typeof player.load === "function") {
+                        player.load();
+                    }
+                }
+            };
+
+            const playTone = (options) => {
+                const ctx = ensureAudio();
+                if (!ctx || !masterGain) {
+                    return;
+                }
+
+                const offset = Number(options.offset) || 0;
+                const start = ctx.currentTime + Math.max(0, offset);
+                const duration = Math.max(0.01, Number(options.duration) || 0.07);
+                const release = Math.max(0.01, Number(options.release) || 0.08);
+                const attack = Math.max(0.001, Number(options.attack) || 0.004);
+                const fromFreq = Math.max(30, Number(options.fromFreq) || Number(options.freq) || 220);
+                const toFreq = Math.max(30, Number(options.toFreq) || fromFreq);
+                const volume = clampVolume(Number(options.volume) || 0.12);
+
+                const oscillator = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                oscillator.type = options.type || "sine";
+                oscillator.frequency.setValueAtTime(fromFreq, start);
+                oscillator.frequency.exponentialRampToValueAtTime(toFreq, start + duration);
+
+                if (Number.isFinite(options.detune)) {
+                    oscillator.detune.setValueAtTime(options.detune, start);
+                }
+
+                gain.gain.setValueAtTime(0.0001, start);
+                gain.gain.exponentialRampToValueAtTime(volume, start + attack);
+                gain.gain.exponentialRampToValueAtTime(0.0001, start + duration + release);
+
+                oscillator.connect(gain);
+                gain.connect(masterGain);
+                oscillator.start(start);
+                oscillator.stop(start + duration + release + 0.02);
+            };
+
+            const playNoiseBurst = (options) => {
+                const ctx = ensureAudio();
+                if (!ctx || !masterGain) {
+                    return;
+                }
+
+                const offset = Number(options.offset) || 0;
+                const start = ctx.currentTime + Math.max(0, offset);
+                const duration = Math.max(0.02, Number(options.duration) || 0.08);
+                const volume = clampVolume(Number(options.volume) || 0.14);
+                const release = Math.max(0.02, Number(options.release) || 0.09);
+                const highpassFreq = Math.max(20, Number(options.highpass) || 70);
+                const lowpassFrom = Math.max(120, Number(options.lowpassFrom) || 1500);
+                const lowpassTo = Math.max(90, Number(options.lowpassTo) || 360);
+
+                const sampleCount = Math.max(1, Math.floor(ctx.sampleRate * duration));
+                const buffer = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < sampleCount; i += 1) {
+                    const t = i / sampleCount;
+                    const envelope = 1 - t;
+                    data[i] = ((Math.random() * 2) - 1) * envelope;
+                }
+
+                const source = ctx.createBufferSource();
+                source.buffer = buffer;
+
+                const highpass = ctx.createBiquadFilter();
+                highpass.type = "highpass";
+                highpass.frequency.setValueAtTime(highpassFreq, start);
+
+                const lowpass = ctx.createBiquadFilter();
+                lowpass.type = "lowpass";
+                lowpass.frequency.setValueAtTime(lowpassFrom, start);
+                lowpass.frequency.exponentialRampToValueAtTime(lowpassTo, start + duration + release);
+
+                const gain = ctx.createGain();
+                gain.gain.setValueAtTime(0.0001, start);
+                gain.gain.exponentialRampToValueAtTime(volume, start + 0.008);
+                gain.gain.exponentialRampToValueAtTime(0.0001, start + duration + release);
+
+                source.connect(highpass);
+                highpass.connect(lowpass);
+                lowpass.connect(gain);
+                gain.connect(masterGain);
+
+                source.start(start);
+                source.stop(start + duration + release + 0.02);
+            };
+
+            const playSwing = (isSword, isRunAttack, hitIndex) => {
+                const swordBoost = isSword ? 1.15 : 1;
+                const hitBoost = Math.max(0, Number(hitIndex) || 0) * 18;
+                playTone({
+                    type: isSword ? "sawtooth" : "triangle",
+                    fromFreq: (isRunAttack ? 240 : (isSword ? 200 : 145)) + hitBoost,
+                    toFreq: (isRunAttack ? 740 : (isSword ? 590 : 310)) + hitBoost,
+                    duration: isRunAttack ? 0.12 : (isSword ? 0.1 : 0.085),
+                    release: 0.07,
+                    volume: (isRunAttack ? 0.16 : (isSword ? 0.14 : 0.11)) * swordBoost
+                });
+
+                playTone({
+                    type: isSword ? "triangle" : "square",
+                    fromFreq: isRunAttack ? 470 : (isSword ? 360 : 230),
+                    toFreq: isRunAttack ? 860 : (isSword ? 720 : 430),
+                    duration: 0.06,
+                    release: 0.05,
+                    volume: isRunAttack ? 0.11 : (isSword ? 0.085 : 0.07),
+                    offset: 0.02
+                });
+
+                playNoiseBurst({
+                    duration: isRunAttack ? 0.06 : 0.045,
+                    release: 0.045,
+                    volume: isRunAttack ? 0.08 : (isSword ? 0.066 : 0.056),
+                    highpass: 350,
+                    lowpassFrom: isRunAttack ? 2200 : 1700,
+                    lowpassTo: 700
+                });
+            };
+
+            const createSsjAuraState = () => {
+                const intro = ssjAuraIntroTemplate.cloneNode();
+                intro.preload = "auto";
+                intro.loop = false;
+                intro.volume = ssjAuraIntroTemplate.volume;
+
+                const standby = ssjAuraStandbyTemplate.cloneNode();
+                standby.preload = "auto";
+                standby.loop = true;
+                standby.volume = ssjAuraStandbyTemplate.volume;
+
+                return {
+                    active: false,
+                    intro,
+                    standby
+                };
+            };
+
+            const getSsjAuraState = (viewKey) => {
+                const key = String(viewKey || "");
+                if (!key) {
+                    return null;
+                }
+
+                if (!ssjAuraStates.has(key)) {
+                    ssjAuraStates.set(key, createSsjAuraState());
+                }
+                return ssjAuraStates.get(key) || null;
+            };
+
+            const resetClip = (clip) => {
+                if (!clip) {
+                    return;
+                }
+                clip.pause();
+                clip.currentTime = 0;
+            };
+
+            const syncSsjAuraAudio = (viewKey, shouldBeActive) => {
+                const state = getSsjAuraState(viewKey);
+                if (!state) {
+                    return;
+                }
+
+                const nextActive = Boolean(shouldBeActive);
+                if (!nextActive) {
+                    if (!state.active) {
+                        return;
+                    }
+
+                    state.active = false;
+                    state.intro.onended = null;
+                    resetClip(state.intro);
+                    resetClip(state.standby);
+                    return;
+                }
+
+                if (state.active) {
+                    return;
+                }
+
+                state.active = true;
+                resetClip(state.intro);
+                resetClip(state.standby);
+
+                const startStandbyLoop = () => {
+                    if (!state.active) {
+                        return;
+                    }
+
+                    state.standby.currentTime = 0;
+                    const standbyPlay = state.standby.play();
+                    if (standbyPlay && typeof standbyPlay.catch === "function") {
+                        standbyPlay.catch(() => {});
+                    }
+                };
+
+                state.intro.onended = () => {
+                    state.intro.onended = null;
+                    startStandbyLoop();
+                };
+
+                state.intro.currentTime = 0;
+                const introPlay = state.intro.play();
+                if (introPlay && typeof introPlay.catch === "function") {
+                    introPlay.catch(() => {
+                        if (!state.active) {
+                            return;
+                        }
+                        state.intro.onended = null;
+                        startStandbyLoop();
                     });
-                    targetView.sprite.play(targetDefendAnim, true);
+                }
+            };
 
-                    spawnDamageText(scene, targetView, totalDamage);
-                    scene.cameras.main.shake(105, 0.008);
+            const playHtmlClip = (source, fallback) => {
+                if (!source) {
+                    if (typeof fallback === "function") {
+                        fallback();
+                    }
+                    return;
+                }
+
+                try {
+                    const clip = source.cloneNode();
+                    clip.volume = source.volume;
+                    clip.currentTime = 0;
+                    const playPromise = clip.play();
+                    if (playPromise && typeof playPromise.catch === "function") {
+                        playPromise.catch(() => {});
+                    }
+                } catch (_error) {
+                    if (typeof fallback === "function") {
+                        fallback();
+                    }
+                }
+            };
+
+            const playHtmlClipForDuration = (source, durationMs, fallback) => {
+                const limitedDurationMs = Math.max(0, Number(durationMs) || 0);
+                if (limitedDurationMs <= 0) {
+                    playHtmlClip(source, fallback);
+                    return;
+                }
+
+                if (!source) {
+                    if (typeof fallback === "function") {
+                        fallback();
+                    }
+                    return;
+                }
+
+                try {
+                    const clip = source.cloneNode();
+                    clip.volume = source.volume;
+                    clip.currentTime = 0;
+                    let stopTimer = null;
+                    const stopClip = () => {
+                        clip.pause();
+                        clip.currentTime = 0;
+                    };
+                    const armStopTimer = () => {
+                        if (stopTimer) {
+                            window.clearTimeout(stopTimer);
+                        }
+                        stopTimer = window.setTimeout(() => {
+                            stopClip();
+                            stopTimer = null;
+                        }, limitedDurationMs);
+                    };
+
+                    clip.addEventListener("playing", armStopTimer, { once: true });
+                    clip.addEventListener("ended", () => {
+                        if (stopTimer) {
+                            window.clearTimeout(stopTimer);
+                            stopTimer = null;
+                        }
+                    }, { once: true });
+
+                    const playPromise = clip.play();
+                    if (playPromise && typeof playPromise.then === "function") {
+                        playPromise
+                            .then(() => {
+                                if (!stopTimer && !clip.paused) {
+                                    armStopTimer();
+                                }
+                            })
+                            .catch(() => {});
+                    }
+                } catch (_error) {
+                    if (typeof fallback === "function") {
+                        fallback();
+                    }
+                }
+            };
+
+            const playSummonOverlayAudio = (summonId, overlayDurationMs) => {
+                const source = summonOverlayPlayers[String(summonId || "")];
+                playHtmlClip(source);
+                playHtmlClipForDuration(overlayBacksoundPlayer, overlayDurationMs);
+            };
+
+            const playSummonRun = (summonId, sceneDurationMs) => {
+                const normalizedId = String(summonId || "");
+                if (normalizedId !== "fire_wizard" && normalizedId !== "lightning_mage") {
+                    return;
+                }
+
+                playHtmlClipForDuration(summonRunPlayer, sceneDurationMs);
+            };
+
+            const playSummonJump = (summonId, sceneDurationMs) => {
+                const normalizedId = String(summonId || "");
+                if (normalizedId !== "fire_wizard" && normalizedId !== "lightning_mage") {
+                    return;
+                }
+
+                playHtmlClipForDuration(summonJumpPlayer, sceneDurationMs);
+            };
+
+            const getSummonOverlayDurationMs = (summonId) => {
+                const source = summonOverlayPlayers[String(summonId || "")];
+                const durationMs = getHtmlClipDurationMs(source);
+                if (durationMs > 0) {
+                    return durationMs;
+                }
+
+                return SUMMON_OVERLAY_TOTAL_MS;
+            };
+
+            const playKnightSlash = (hitIndex) => {
+                const normalizedHit = Math.max(0, Number(hitIndex) || 0);
+                const playerIndex = Math.min(knightSlashPlayers.length - 1, normalizedHit);
+                const source = knightSlashPlayers[playerIndex];
+                playHtmlClip(source, () => {
+                    playSwing(false, false, hitIndex);
+                });
+            };
+
+            const playTenguSlash = (hitIndex) => {
+                const normalizedHit = Math.max(0, Number(hitIndex) || 0);
+                const playerIndex = Math.min(tenguSlashPlayers.length - 1, normalizedHit);
+                const source = tenguSlashPlayers[playerIndex];
+                playHtmlClip(source, () => {
+                    playSwing(true, false, hitIndex);
+                });
+            };
+
+            const playFightStart = () => {
+                playHtmlClip(fightStartPlayer, () => {
+                    playTone({
+                        type: "square",
+                        fromFreq: 280,
+                        toFreq: 460,
+                        duration: 0.1,
+                        release: 0.1,
+                        volume: 0.1
+                    });
+                });
+            };
+
+            const playYouLose = () => {
+                playHtmlClip(youLosePlayer, () => {
+                    playTone({
+                        type: "triangle",
+                        fromFreq: 280,
+                        toFreq: 140,
+                        duration: 0.2,
+                        release: 0.14,
+                        volume: 0.12
+                    });
+                });
+            };
+
+            const playImpact = (isSword, hitIndex) => {
+                const impactBoost = (Number(hitIndex) || 0) * 8;
+                const heavy = isSword ? 1.2 : 1;
+
+                playNoiseBurst({
+                    duration: isSword ? 0.11 : 0.12,
+                    release: 0.1,
+                    volume: (isSword ? 0.2 : 0.24) * heavy,
+                    highpass: isSword ? 80 : 60,
+                    lowpassFrom: isSword ? 1500 : 1200,
+                    lowpassTo: isSword ? 310 : 240
+                });
+
+                playTone({
+                    type: "square",
+                    fromFreq: (isSword ? 155 : 118) + impactBoost,
+                    toFreq: isSword ? 68 : 62,
+                    duration: 0.11,
+                    release: 0.11,
+                    volume: isSword ? 0.2 : 0.22
+                });
+
+                playTone({
+                    type: "sine",
+                    fromFreq: isSword ? 780 : 630,
+                    toFreq: isSword ? 250 : 210,
+                    duration: 0.08,
+                    release: 0.08,
+                    volume: isSword ? 0.07 : 0.06,
+                    offset: 0.012
+                });
+            };
+
+            const playEvolution = () => {
+                playTone({
+                    type: "triangle",
+                    fromFreq: 320,
+                    toFreq: 560,
+                    duration: 0.09,
+                    release: 0.09,
+                    volume: 0.11
+                });
+                playTone({
+                    type: "triangle",
+                    fromFreq: 440,
+                    toFreq: 760,
+                    duration: 0.1,
+                    release: 0.11,
+                    volume: 0.1,
+                    offset: 0.06
+                });
+                playTone({
+                    type: "sine",
+                    fromFreq: 610,
+                    toFreq: 950,
+                    duration: 0.12,
+                    release: 0.12,
+                    volume: 0.08,
+                    offset: 0.14
+                });
+            };
+
+            const playSummonEnter = (summonId) => {
+                const isFire = summonId === "fire_wizard";
+                playTone({
+                    type: isFire ? "square" : "triangle",
+                    fromFreq: isFire ? 170 : 210,
+                    toFreq: isFire ? 320 : 390,
+                    duration: 0.18,
+                    release: 0.08,
+                    volume: 0.1
+                });
+                playNoiseBurst({
+                    duration: 0.08,
+                    release: 0.06,
+                    volume: 0.07,
+                    highpass: isFire ? 180 : 260,
+                    lowpassFrom: isFire ? 1200 : 1800,
+                    lowpassTo: 640
+                });
+            };
+
+            const playSummonCast = (summonId, castDurationMs) => {
+                const isFire = summonId === "fire_wizard";
+                if (isFire) {
+                    playHtmlClipForDuration(fireAttackPlayer, castDurationMs, () => {
+                        playTone({
+                            type: "sawtooth",
+                            fromFreq: 220,
+                            toFreq: 920,
+                            duration: 0.2,
+                            release: 0.12,
+                            volume: 0.15
+                        });
+                        playTone({
+                            type: "sine",
+                            fromFreq: 380,
+                            toFreq: 650,
+                            duration: 0.16,
+                            release: 0.1,
+                            volume: 0.09,
+                            offset: 0.06
+                        });
+                    });
+                    return;
+                }
+
+                if (summonId === "lightning_mage") {
+                    playHtmlClip(lightningAttackPlayer, () => {
+                        playTone({
+                            type: "triangle",
+                            fromFreq: 260,
+                            toFreq: 980,
+                            duration: 0.2,
+                            release: 0.12,
+                            volume: 0.15
+                        });
+                        playTone({
+                            type: "sine",
+                            fromFreq: 420,
+                            toFreq: 760,
+                            duration: 0.16,
+                            release: 0.1,
+                            volume: 0.09,
+                            offset: 0.06
+                        });
+                    });
+                    return;
+                }
+
+                playTone({
+                    type: isFire ? "sawtooth" : "triangle",
+                    fromFreq: isFire ? 220 : 260,
+                    toFreq: isFire ? 920 : 980,
+                    duration: 0.2,
+                    release: 0.12,
+                    volume: 0.15
+                });
+                playTone({
+                    type: "sine",
+                    fromFreq: isFire ? 380 : 420,
+                    toFreq: isFire ? 650 : 760,
+                    duration: 0.16,
+                    release: 0.1,
+                    volume: 0.09,
+                    offset: 0.06
+                });
+            };
+
+            const playSummonExplosion = (summonId) => {
+                const isFire = summonId === "fire_wizard";
+                if (isFire) {
+                    playHtmlClip(fireBoomPlayer, () => {
+                        playNoiseBurst({
+                            duration: 0.18,
+                            release: 0.12,
+                            volume: 0.27,
+                            highpass: 70,
+                            lowpassFrom: 980,
+                            lowpassTo: 240
+                        });
+                        playTone({
+                            type: "square",
+                            fromFreq: 210,
+                            toFreq: 58,
+                            duration: 0.18,
+                            release: 0.11,
+                            volume: 0.23
+                        });
+                    });
+                    return;
+                }
+
+                if (summonId === "lightning_mage") {
+                    playHtmlClip(lightningBoomPlayer, () => {
+                        playNoiseBurst({
+                            duration: 0.16,
+                            release: 0.12,
+                            volume: 0.24,
+                            highpass: 90,
+                            lowpassFrom: 1300,
+                            lowpassTo: 260
+                        });
+                        playTone({
+                            type: "sawtooth",
+                            fromFreq: 270,
+                            toFreq: 72,
+                            duration: 0.18,
+                            release: 0.11,
+                            volume: 0.2
+                        });
+                    });
+                    return;
+                }
+
+                playNoiseBurst({
+                    duration: isFire ? 0.18 : 0.16,
+                    release: 0.12,
+                    volume: isFire ? 0.27 : 0.24,
+                    highpass: isFire ? 70 : 90,
+                    lowpassFrom: isFire ? 980 : 1300,
+                    lowpassTo: isFire ? 240 : 260
+                });
+                playTone({
+                    type: isFire ? "square" : "sawtooth",
+                    fromFreq: isFire ? 210 : 270,
+                    toFreq: isFire ? 58 : 72,
+                    duration: 0.18,
+                    release: 0.11,
+                    volume: isFire ? 0.23 : 0.2
+                });
+            };
+
+            return {
+                unlockAudio,
+                playSwing,
+                playKnightSlash,
+                playTenguSlash,
+                syncSsjAuraAudio,
+                playFightStart,
+                playYouLose,
+                playImpact,
+                playEvolution,
+                playSummonOverlayAudio,
+                playSummonRun,
+                playSummonJump,
+                playSummonEnter,
+                playSummonCast,
+                playSummonExplosion,
+                getSummonOverlayDurationMs
+            };
+        }
+
+        function spawnEvolutionPulse(scene, view) {
+            if (!scene || !view || !view.container.visible) {
+                return;
+            }
+
+            const auraColor = view.auraColor || 0x60a5fa;
+            const centerX = view.container.x;
+            const centerY = view.container.y - Math.round(view.sprite.displayHeight * 0.56);
+            const pulse = scene.add.circle(centerX, centerY, 26, auraColor, 0.24).setDepth(24);
+            pulse.setStrokeStyle(3, auraColor, 0.9);
+
+            scene.tweens.add({
+                targets: pulse,
+                scaleX: 2.9,
+                scaleY: 2.9,
+                alpha: 0,
+                duration: 360,
+                ease: "Cubic.easeOut",
+                onComplete: () => {
+                    pulse.destroy();
+                }
+            });
+
+            for (let i = 0; i < 8; i += 1) {
+                const angle = (Math.PI * 2 * i) / 8;
+                const spark = scene.add.circle(centerX, centerY, 3, auraColor, 0.92).setDepth(25);
+                const distance = 60 + Math.random() * 20;
+                const targetX = centerX + Math.cos(angle) * distance;
+                const targetY = centerY + Math.sin(angle) * distance;
+
+                scene.tweens.add({
+                    targets: spark,
+                    x: targetX,
+                    y: targetY,
+                    alpha: 0,
+                    scaleX: 0.35,
+                    scaleY: 0.35,
+                    duration: 260,
+                    ease: "Quad.easeOut",
+                    onComplete: () => {
+                        spark.destroy();
+                    }
+                });
+            }
+        }
+
+        function spawnSlashTrail(scene, attackerView, isSword, animIndex) {
+            if (!scene || !attackerView || !attackerView.container.visible) {
+                return;
+            }
+
+            const color = isSword ? (attackerView.auraColor || 0x93c5fd) : 0xfcd34d;
+            const trailWidth = isSword ? 130 : 98;
+            const trailHeight = isSword ? 16 : 12;
+            const offsetX = attackerView.dashDirection * (isSword ? 68 : 54);
+            const offsetY = -Math.round(attackerView.sprite.displayHeight * 0.58) + (animIndex % 2 === 0 ? 0 : 8);
+
+            const slash = scene.add.rectangle(
+                attackerView.container.x + offsetX,
+                attackerView.container.y + offsetY,
+                trailWidth,
+                trailHeight,
+                color,
+                0.88
+            ).setDepth(27);
+
+            slash.setAngle(attackerView.dashDirection * (isSword ? 19 : 12));
+
+            scene.tweens.add({
+                targets: slash,
+                x: slash.x + attackerView.dashDirection * (isSword ? 28 : 20),
+                alpha: 0,
+                scaleX: 1.6,
+                scaleY: 0.45,
+                duration: 125,
+                ease: "Cubic.easeOut",
+                onComplete: () => {
+                    slash.destroy();
+                }
+            });
+        }
+
+        function spawnRunAttackTrail(scene, attackerView) {
+            if (!scene || !attackerView || !attackerView.container.visible) {
+                return;
+            }
+
+            const auraColor = attackerView.auraColor || 0x60a5fa;
+            const baseY = attackerView.container.y - Math.round(attackerView.sprite.displayHeight * 0.5);
+            for (let i = 0; i < 3; i += 1) {
+                scene.time.delayedCall(i * 40, () => {
+                    if (!attackerView.container.visible) {
+                        return;
+                    }
+
+                    const glow = scene.add.rectangle(
+                        attackerView.container.x - attackerView.dashDirection * (18 + i * 6),
+                        baseY + (i - 1) * 6,
+                        88 - i * 16,
+                        18 - i * 3,
+                        auraColor,
+                        0.42
+                    ).setDepth(26);
 
                     scene.tweens.add({
-                        targets: attackerView.container,
-                        x: attackerStartX,
-                        duration: 135,
-                        ease: "Cubic.easeIn",
+                        targets: glow,
+                        x: glow.x - attackerView.dashDirection * 22,
+                        alpha: 0,
+                        duration: 150,
+                        ease: "Quad.easeOut",
                         onComplete: () => {
-                            attackerView.container.setDepth(attackerView.baseDepth || 10);
+                            glow.destroy();
                         }
                     });
+                });
+            }
+        }
+
+        function spawnImpactBurst(scene, targetView, direction, isSword, impactIndex) {
+            if (!scene || !targetView || !targetView.container.visible) {
+                return;
+            }
+
+            const hitOffset = Math.max(0, Number(impactIndex) || 0);
+            const impactX = targetView.container.x + direction * (18 + (hitOffset * 8));
+            const impactY = targetView.container.y - Math.round(targetView.sprite.displayHeight * (0.56 + (hitOffset * 0.02)));
+            const flashColor = isSword ? 0xbfdbfe : 0xfef3c7;
+            const sparkColor = isSword ? 0x93c5fd : 0xfbbf24;
+
+            const flashRadius = (isSword ? 26 : 21) + (hitOffset * 2.5);
+            const flash = scene.add.circle(impactX, impactY, flashRadius, flashColor, 0.78).setDepth(30);
+            scene.tweens.add({
+                targets: flash,
+                scaleX: 1.65,
+                scaleY: 1.65,
+                alpha: 0,
+                duration: 160,
+                ease: "Cubic.easeOut",
+                onComplete: () => {
+                    flash.destroy();
                 }
             });
 
-            attackerView.sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
-                attackerView.isAttacking = false;
-                if (attackerView.playerUsername) {
-                    attackerView.sprite.play(attackerDefendAnim, true);
-                }
-            });
+            for (let i = 0; i < 8; i += 1) {
+                const spark = scene.add.circle(impactX, impactY, 2 + Math.random() * 1.4, sparkColor, 0.95).setDepth(31);
+                const dir = Math.random() < 0.75 ? direction : -direction;
+                const velocityX = dir * (46 + Math.random() * 86 + (hitOffset * 9));
+                const velocityY = -30 - Math.random() * 86 - (hitOffset * 5);
+
+                scene.tweens.add({
+                    targets: spark,
+                    x: impactX + velocityX,
+                    y: impactY + velocityY,
+                    alpha: 0,
+                    scaleX: 0.45,
+                    scaleY: 0.45,
+                    duration: 230 + Math.random() * 80,
+                    ease: "Quad.easeOut",
+                    onComplete: () => {
+                        spark.destroy();
+                    }
+                });
+            }
         }
 
-        function getAttackAnimKey(view, useSword) {
-            return view.animPrefix + "-" + (useSword ? "sword-attack" : "punch-attack");
-        }
-
-        function getDefendAnimKey(view, useSword) {
-            return view.animPrefix + "-" + (useSword ? "sword-defend" : "punch-defend");
-        }
-
-        function spawnDamageText(scene, targetView, damage) {
+        function spawnDamageText(scene, targetView, damage, hitIndex) {
             if (!damage) {
                 return;
             }
 
+            const hitOffset = Math.max(0, Number(hitIndex) || 0);
             const text = scene.add.text(
                 targetView.container.x,
-                targetView.container.y - Math.round(targetView.sprite.displayHeight) - 96,
+                targetView.container.y - Math.round(targetView.sprite.displayHeight) - 96 - (hitOffset * 14),
                 "-" + damage,
                 {
                     fontFamily: "Segoe UI",
@@ -653,6 +3339,7 @@
 
             const nextTurn = arena.turn === "champion" ? "Champion" : "Challenger";
             const queueLimit = arena.settings?.maxQueue ?? 10;
+            const activeFighters = (arena.champion ? 1 : 0) + (arena.challenger ? 1 : 0);
 
             ui.battleStatus.textContent =
                 "Champion: " + championText + "\n" +
@@ -660,7 +3347,8 @@
                 "Giliran berikutnya: " + nextTurn;
 
             ui.queueMeta.textContent =
-                "Queue " + (arena.queue?.length || 0) + "/" + queueLimit +
+                "Fighter aktif: " + activeFighters +
+                " | Queue " + (arena.queue?.length || 0) + "/" + queueLimit +
                 " | Reserve: " + (arena.reserveCount || 0);
 
             ui.queueList.innerHTML = "";
@@ -668,7 +3356,9 @@
             const queueItems = arena.queue || [];
             if (queueItems.length === 0) {
                 const li = document.createElement("li");
-                li.textContent = "Queue kosong";
+                li.textContent = activeFighters >= 2
+                    ? "Queue kosong (2 pemain pertama langsung bertarung)"
+                    : "Queue kosong";
                 ui.queueList.appendChild(li);
                 return;
             }
